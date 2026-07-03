@@ -1,0 +1,9 @@
+{
+  "name": "jellyfish-site",
+  "private": true,
+  "scripts": {
+    "dev": "hugo server --buildDrafts --disableFastRender",
+    "build": "hugo --minify"
+  }
+}
+

@@ -16,8 +16,12 @@ node_modules/
 bridge/.glm_key
 bridge/visual-dict-*.json
 
-# app/ 是平台底座，自带独立 git 仓库，单独管理
-/app/
+# app/ 后端内核（已并入本仓库，作为项目自有代码维护）
+# —— 仅忽略其运行产物与密钥（app/deploy/compose/.env 已在上方忽略）
+app/**/node_modules/
+app/**/__pycache__/
+app/**/dist/
+app/**/.env
 
 # 备份归档
 /_archive/
