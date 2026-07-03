@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>猫叔的短剧工作台 · 造型（原型）</title>
+<style>
+:root{
+  --bg:#0d0f12; --surface:#16191e; --surface-2:#1c2027; --surface-3:#22272f;
+  --border:#282e37; --border-soft:#1f242b;
+  --text:#eceef1; --text-2:#9aa3af; --text-3:#5f6875;
+  --accent:#e8a33d; --accent-2:#f0b862; --accent-soft:rgba(232,163,61,.12);
+  --success:#4ea87b; --info:#5a8fd1;
+  --r:10px; --r-sm:7px;
+  --font:-apple-system,"Segoe UI",Inter,"DM Sans","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden}
+.app{display:grid;grid-template-rows:52px 1fr;height:100vh}
+.topbar{display:flex;align-items:center;gap:16px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border-soft)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent-soft)}
+.crumb{color:var(--text-3);font-size:12.5px}.crumb b{color:var(--text-2);font-weight:500}
+.progress{display:flex;align-items:center;gap:7px;margin-left:8px}
+.progress .track{width:130px;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+.progress .fill{width:62%;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+.progress .pct{font-size:12px;color:var(--text-2)}
+.spacer{flex:1}
+.search{display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--border-soft);padding:6px 10px;border-radius:8px;color:var(--text-3);font-size:12.5px;min-width:170px}
+.search kbd{margin-left:auto;background:var(--surface-3);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--text-2)}
+.tb-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--text-2)}
+.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#3a4150,#232830);display:grid;place-items:center;font-size:12px;color:var(--text-2)}
+
+.body{display:grid;grid-template-columns:76px 1fr 312px;overflow:hidden}
+.rail{background:var(--surface);border-right:1px solid var(--border-soft);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:4px}
+.nav{display:flex;flex-direction:column;align-items:center;gap:5px;width:58px;padding:9px 0;border-radius:var(--r);color:var(--text-3);cursor:pointer;font-size:11px}
+.nav svg{width:20px;height:20px}
+.nav:hover{background:var(--surface-2);color:var(--text-2)}
+.nav.active{background:var(--accent-soft);color:var(--accent)}
+.rail .flow-line{width:1px;height:10px;background:var(--border)}
+.rail .bottom{margin-top:auto}
+
+.work{overflow:auto;padding:20px 24px}
+.work-head{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.work-head h1{font-size:19px;font-weight:600}
+.btn{padding:7px 14px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn.primary{background:var(--accent);color:#1a1205}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text-2)}
+.tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--border-soft)}
+.tab{padding:8px 14px;font-size:13px;color:var(--text-3);cursor:pointer;border-bottom:2px solid transparent;display:flex;gap:6px;align-items:center}
+.tab .cnt{font-size:11px;background:var(--surface-3);border-radius:10px;padding:0 7px;color:var(--text-2)}
+.tab.on{color:var(--text);border-bottom-color:var(--accent)}
+.tab.on .cnt{background:var(--accent-soft);color:var(--accent)}
+
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:16px}
+.acard{background:var(--surface-2);border-radius:var(--r);overflow:hidden;cursor:pointer;transition:.15s}
+.acard:hover{background:var(--surface-3)}
+.acard.sel{outline:1.5px solid var(--accent)}
+.acard .por{aspect-ratio:3/4;position:relative;background:linear-gradient(150deg,#242a31,#171b21)}
+.acard .por.done{background:radial-gradient(70% 55% at 50% 32%,rgba(232,163,61,.30),transparent 62%),linear-gradient(160deg,#2a2417,#14181e)}
+.acard .por.done::after{content:"";position:absolute;left:32%;top:22%;width:36%;height:30%;border-radius:50%;background:radial-gradient(circle,rgba(232,163,61,.55),transparent 70%);filter:blur(3px)}
+.acard .por .st{position:absolute;right:8px;top:8px;font-size:11px}
+.acard .por .add{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-3);font-size:12px}
+.acard .por .add .plus{width:38px;height:38px;border-radius:50%;border:1px dashed var(--border);display:grid;place-items:center;font-size:20px;margin-bottom:8px}
+.acard .ft{padding:9px 11px}
+.acard .ft .n{font-size:13px;font-weight:600}
+.acard .ft .r{font-size:11px;color:var(--text-3);margin-top:3px;display:flex;justify-content:space-between}
+.acard .ft .r .id{font-family:ui-monospace,monospace}
+.ok{color:var(--success)}.wait{color:var(--text-3)}
+
+/* 右检视器：选中造型详情 */
+.inspector{background:var(--surface);border-left:1px solid var(--border-soft);overflow:auto;padding:0}
+.insp-por{aspect-ratio:3/4;background:radial-gradient(70% 55% at 50% 30%,rgba(232,163,61,.28),transparent 60%),linear-gradient(160deg,#2a2417,#14181e);position:relative}
+.insp-por .tag{position:absolute;left:12px;bottom:12px;background:rgba(0,0,0,.45);border-radius:6px;padding:3px 9px;font-size:11px;color:var(--text-2)}
+.insp-body{padding:16px}
+.insp-h{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+.insp-h .n{font-size:17px;font-weight:600}
+.insp-h .role{font-size:12px;color:var(--accent-2)}
+.insp-id{font-family:ui-monospace,monospace;font-size:11px;color:var(--text-3);margin-bottom:14px}
+.sec{margin:18px 0}
+.sec .h{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:9px;display:flex;justify-content:space-between}
+.sec .h a{color:var(--accent);text-decoration:none;font-size:11px;text-transform:none;letter-spacing:0}
+.desc{font-size:12.5px;color:var(--text-2);line-height:1.7}
+.links{display:flex;flex-direction:column;gap:7px}
+.link{display:flex;align-items:center;gap:9px;background:var(--surface-2);border-radius:7px;padding:8px 10px}
+.link .sw{width:24px;height:24px;border-radius:5px;flex:none}
+.link .n{font-size:12.5px}.link .k{font-size:10.5px;color:var(--text-3);margin-top:1px}
+.link .id{margin-left:auto;font-size:10px;color:var(--text-3);font-family:ui-monospace,monospace}
+.link.empty{border:1px dashed var(--border);background:transparent;color:var(--text-3);justify-content:center;font-size:12px;cursor:pointer}
+.refs{display:flex;gap:8px}
+.ref{width:52px}
+.ref .im{aspect-ratio:3/4;border-radius:6px;background:linear-gradient(160deg,#2a2417,#14181e)}
+.ref .im.done{background:radial-gradient(60% 50% at 50% 35%,rgba(232,163,61,.4),transparent),linear-gradient(160deg,#2a2417,#14181e)}
+.ref .im.add{display:grid;place-items:center;color:var(--text-3);border:1px dashed var(--border);background:transparent;font-size:16px}
+.ref .l{font-size:10px;color:var(--text-3);text-align:center;margin-top:4px}
+.chg{background:var(--accent-soft);border-radius:8px;padding:9px 11px;font-size:11.5px;color:var(--accent-2);line-height:1.5}
+.btn.block{width:100%;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><span>猫叔的短剧工作台</span></div>
+    <span class="crumb">项目 · <b>替身总裁的辞职信</b> · 短剧</span>
+    <div class="progress"><div class="track"><div class="fill"></div></div><span class="pct">62%</span></div>
+    <div class="spacer"></div>
+    <div class="search"><span>搜索镜头、角色、资产…</span><kbd>⌘K</kbd></div>
+    <div class="tb-icon">◔</div><div class="tb-icon">◑</div><div class="avatar">猫</div>
+  </div>
+
+  <div class="body">
+    <div class="rail">
+      <div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3h9l5 5v13H5z"/><path d="M14 3v5h5"/></svg>剧本</div>
+      <div class="flow-line"></div>
+      <div class="nav active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>造型</div>
+      <div class="flow-line"></div>
+      <div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 4v16"/></svg>分镜</div>
+      <div class="flow-line"></div>
+      <div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h4v10M17 5v14h4M7 5v4"/></svg>画面</div>
+      <div class="bottom nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>设置</div>
+    </div>
+
+    <div class="work">
+      <div class="work-head">
+        <h1>造型</h1>
+        <div class="spacer"></div>
+        <button class="btn ghost">导入原点设定</button>
+        <button class="btn primary">生成缺失造型图</button>
+      </div>
+      <div class="tabs">
+        <div class="tab on">角色 <span class="cnt">2</span></div>
+        <div class="tab">演员 <span class="cnt">0</span></div>
+        <div class="tab">场景 <span class="cnt">2</span></div>
+        <div class="tab">道具 <span class="cnt">1</span></div>
+        <div class="tab">服装 <span class="cnt">2</span></div>
+      </div>
+
+      <div class="gallery">
+        <div class="acard sel">
+          <div class="por done"><span class="st ok">✓</span></div>
+          <div class="ft"><div class="n">林晚</div><div class="r"><span>女主</span><span class="id">char_001</span></div></div>
+        </div>
+        <div class="acard">
+          <div class="por done"><span class="st ok">✓</span></div>
+          <div class="ft"><div class="n">陆沉舟</div><div class="r"><span>男主·反角</span><span class="id">char_002</span></div></div>
+        </div>
+        <div class="acard">
+          <div class="por"><div class="add"><div class="plus">＋</div>新增角色</div></div>
+          <div class="ft"><div class="n" style="color:var(--text-3)">添加</div><div class="r"><span>&nbsp;</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右检视器：林晚 造型详情 -->
+    <div class="inspector">
+      <div class="insp-por"><span class="tag">正面 · gpt-image-2</span></div>
+      <div class="insp-body">
+        <div class="insp-h"><span class="n">林晚</span><span class="role">女主</span></div>
+        <div class="insp-id">char_001</div>
+
+        <div class="sec">
+          <div class="h">外貌 <a href="#">AI 补全</a></div>
+          <div class="desc">25 岁女性，清秀白皙，长直黑发束成低马尾，眼神克制而倔强，气质冷静内敛。</div>
+        </div>
+
+        <div class="sec">
+          <div class="h">组成（一致性）</div>
+          <div class="links">
+            <div class="link empty">＋ 指定演员形象</div>
+            <div class="link"><div class="sw" style="background:linear-gradient(135deg,#c9b48a,#8a7a55)"></div><div><div class="n">米白收腰职业套装</div><div class="k">默认服装</div></div><span class="id">cos_001</span></div>
+            <div class="link"><div class="sw" style="background:linear-gradient(135deg,#b8a06a,#6e5c38)"></div><div><div class="n">辞职信</div><div class="k">随身道具</div></div><span class="id">prop_001</span></div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="h">参考图 <a href="#">补角度</a></div>
+          <div class="refs">
+            <div class="ref"><div class="im done"></div><div class="l">正面</div></div>
+            <div class="ref"><div class="im done"></div><div class="l">三分</div></div>
+            <div class="ref"><div class="im add">＋</div><div class="l">侧面</div></div>
+            <div class="ref"><div class="im add">＋</div><div class="l">背面</div></div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="h">造型变化（来自时序）</div>
+          <div class="chg">▲ 第 1 集 · 镜头 03 起：眼眶泛红（妆效变化）。同场景其余镜头维持默认造型。</div>
+        </div>
+
+        <button class="btn primary block">重新生成造型图</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

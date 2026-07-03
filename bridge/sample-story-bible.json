@@ -1,0 +1,73 @@
+{
+  "project": {
+    "id": "proj_lw001",
+    "title": "替身总裁的辞职信",
+    "format": "micro_drama",
+    "language": "zh-CN",
+    "genre": ["romance"],
+    "logline": "被当替身的助理递上辞职信，冷面总裁才发现自己早已沦陷。",
+    "visual_style": "live_action",
+    "style": "真人都市"
+  },
+  "story_bible": {
+    "premise": "顶替白月光身份工作三年的助理决定离开，总裁在失去边缘才认清真心。",
+    "core_conflict": "林晚想逃离这段替身关系 vs 陆沉舟不肯承认也不肯放手。",
+    "characters": [
+      {
+        "id": "char_001",
+        "name": "林晚",
+        "story_role": "protagonist",
+        "external_want": "递交辞职信，彻底离开陆氏集团",
+        "internal_need": "被当作她自己被爱，而不是谁的替身",
+        "wound": "三年前被要求模仿另一个人活着",
+        "appearance": "25岁女性，清秀白皙，长直黑发束成低马尾，眼神克制而倔强，职业套装",
+        "default_costume": "米白色收腰职业套装，黑色高跟鞋",
+        "props": ["辞职信"]
+      },
+      {
+        "id": "char_002",
+        "name": "陆沉舟",
+        "story_role": "antagonist",
+        "external_want": "留住林晚，维持现状",
+        "internal_need": "承认自己爱的是林晚本人",
+        "wound": "白月光离世后用替身逃避哀伤",
+        "appearance": "32岁男性，身形高大，短寸黑发，面容冷峻棱角分明，深色高定西装",
+        "default_costume": "藏青色三件套高定西装，银灰领带"
+      }
+    ],
+    "scenes": [
+      {
+        "id": "scene_001",
+        "name": "总裁办公室",
+        "visual_description": "顶层落地窗办公室，夜晚，城市灯火在窗外，冷色调，极简现代装潢，深色实木办公桌",
+        "tags": ["室内", "夜"]
+      }
+    ],
+    "props": [
+      {
+        "id": "prop_001",
+        "name": "辞职信",
+        "visual_description": "一封对折的白色A4信纸，封面手写「辞职申请」四字"
+      }
+    ],
+    "world_rules": [],
+    "setup_payoffs": [
+      {
+        "id": "setup_001",
+        "setup_summary": "辞职信被撕成两半",
+        "expected_payoff_window": "结局",
+        "status": "open"
+      }
+    ]
+  },
+  "script": {
+    "episodes": [
+      {
+        "index": 1,
+        "title": "辞职信",
+        "hook": "他撕碎辞职信：我不会同意的。",
+        "body": "林晚推开办公室的门，看见陆沉舟正站在落地窗前。他转身，目光冷冷地落在她脸上。「你终于来了。」林晚攥紧了手里的辞职信，深吸一口气走上前。窗外，一道闪电划过夜空。陆沉舟走近，夺过那封信，撕成两半。「我不会同意的。」林晚后退一步，声音发颤却坚定：「陆总，我不是她。这三年，够了。」"
+      }
+    ]
+  }
+}

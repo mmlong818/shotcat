@@ -1,0 +1,219 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "duanju-studio/story-bible.v1",
+  "title": "短剧故事圣经 v1（编剧端产出 · 生产端消费的共享契约）",
+  "description": "改编自 yuandian story-bible-template-v1，为短剧生产追加视觉层字段。ID 约定 char_001/scene_001/prop_001 与 Jellyfish EntityMerger 同构，可直接映射到 Jellyfish 实体表。叙事字段驱动写作与一致性校验；视觉字段(appearance/visual_description)驱动 Jellyfish 图片/视频生成。",
+  "type": "object",
+  "required": ["project", "story_bible"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["title", "format", "genre", "logline"],
+      "properties": {
+        "id": { "type": "string", "examples": ["project_001"] },
+        "title": { "type": "string" },
+        "format": { "type": "string", "enum": ["micro_drama", "series", "feature_or_pilot"], "description": "micro_drama=竖屏短剧(逐集钩子/前3集锁爽点)" },
+        "language": { "type": "string", "default": "zh-CN" },
+        "genre": { "type": "array", "items": { "type": "string" }, "description": "对应 knowledge/genres 的 id，如 romance/suspense" },
+        "logline": { "type": "string", "description": "一句话钩子 ≤30字" },
+        "theme_question": { "type": "string" },
+        "tone": { "type": "string" },
+        "visual_style": { "type": "string", "enum": ["live_action", "anime"], "default": "live_action", "description": "→ Jellyfish 所有实体的 visual_style" },
+        "style": { "type": "string", "description": "题材/风格 → Jellyfish 实体的 style 字段（各实体必填）" },
+        "status": { "type": "string", "default": "development" }
+      }
+    },
+    "story_bible": {
+      "type": "object",
+      "required": ["premise", "core_conflict", "characters"],
+      "properties": {
+        "premise": { "type": "string" },
+        "core_conflict": { "type": "string" },
+
+        "characters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "story_role"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^char_[0-9]+$", "description": "→ Jellyfish characters.id" },
+              "name": { "type": "string", "description": "→ Jellyfish characters.name（项目内唯一，全程原样保留不改写）" },
+              "story_role": { "type": "string", "enum": ["protagonist", "antagonist", "ally", "mentor", "shapeshifter", "herald", "guardian", "supporting"] },
+
+              "external_want": { "type": "string", "description": "叙事层：外在目标（看得见）" },
+              "internal_need": { "type": "string", "description": "叙事层：内在需求（隐藏成长）" },
+              "psychological_flaw": { "type": "string" },
+              "core_fear": { "type": "string" },
+              "wound": { "type": "string", "description": "过去创伤" },
+              "arc_start": { "type": "string" },
+              "arc_end": { "type": "string" },
+              "voice_rules": { "type": "array", "items": { "type": "string" }, "description": "台词口吻规则（写正文用）" },
+              "secret": { "type": "string" },
+
+              "appearance": { "type": "string", "description": "★视觉层：外貌(年龄/性别/脸/身材/发型/气质/辨识特征)。→ 汇入 Jellyfish characters.description，缺失时可由 Jellyfish CharacterPortraitAnalysisAgent 补全" },
+              "default_costume": { "type": "string", "description": "★视觉层：默认服装描述 → Jellyfish Costume（按 name 去重后 costume_id 绑定）" },
+              "props": { "type": "array", "items": { "type": "string" }, "description": "★视觉层：随身道具名 → Jellyfish Prop + CharacterPropLink" }
+            }
+          }
+        },
+
+        "relationships": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "source_character_id", "target_character_id"],
+            "properties": {
+              "id": { "type": "string" },
+              "source_character_id": { "type": "string" },
+              "target_character_id": { "type": "string" },
+              "relationship_type": { "type": "string" },
+              "tension": { "type": "string" },
+              "power_balance": { "type": "string" },
+              "shared_history": { "type": "string" },
+              "hidden_information": { "type": "string" }
+            }
+          },
+          "description": "叙事层：仅编剧/一致性校验用，Jellyfish 暂无对应表"
+        },
+
+        "scenes": {
+          "type": "array",
+          "description": "地点/场景（区别于 scene_cards 剧作场次）。→ Jellyfish Scene 表",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^scene_[0-9]+$", "description": "→ Jellyfish scenes.id" },
+              "name": { "type": "string", "description": "→ Jellyfish scenes.name（全局唯一，原样保留）" },
+              "visual_description": { "type": "string", "description": "★视觉层：空间/时间/氛围 → Jellyfish scenes.description" },
+              "tags": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+
+        "props": {
+          "type": "array",
+          "description": "全局道具库。→ Jellyfish Prop 表",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^prop_[0-9]+$" },
+              "name": { "type": "string" },
+              "visual_description": { "type": "string", "description": "→ Jellyfish props.description" }
+            }
+          }
+        },
+
+        "world_rules": {
+          "type": "array",
+          "description": "叙事层：世界规则，用于规则引擎 world_rule_violation 校验",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "rule_statement": { "type": "string" },
+              "rule_level": { "type": "string", "enum": ["hard", "soft", "suggestion"] },
+              "scope": { "type": "string" },
+              "exceptions": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+
+        "timeline_events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "story_day": { "type": "integer" },
+              "sequence_index": { "type": "integer" },
+              "summary": { "type": "string" },
+              "participants": { "type": "array", "items": { "type": "string" } },
+              "location": { "type": "string" },
+              "trigger": { "type": "string" },
+              "consequence": { "type": "string" }
+            }
+          }
+        },
+
+        "beats": {
+          "type": "array",
+          "description": "结构锚点。framework/slot 引用 knowledge/beat-sheets（短剧用 chinese_drama_24ep）",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "framework": { "type": "string" },
+              "slot": { "type": "string" },
+              "purpose": { "type": "string" },
+              "linked_scene_card_ids": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+
+        "scene_cards": {
+          "type": "array",
+          "description": "剧作场次卡（goal/obstacle/turn/value_shift）。规则引擎 scene_goal/scene_turn 校验对象；正文按此写。注意与地点 scenes 区分。",
+          "items": {
+            "type": "object",
+            "required": ["id", "order_index"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^scenecard_[0-9]+$" },
+              "order_index": { "type": "integer" },
+              "title": { "type": "string" },
+              "pov_character_id": { "type": "string" },
+              "location_scene_id": { "type": "string", "description": "→ 关联 scenes[].id（地点）" },
+              "time_of_day": { "type": "string" },
+              "goal": { "type": "string" },
+              "obstacle": { "type": "string" },
+              "tactic": { "type": "string" },
+              "turn": { "type": "string" },
+              "value_shift": { "type": "string" },
+              "new_information": { "type": "array", "items": { "type": "string" } },
+              "input_state": { "type": "string" },
+              "output_state": { "type": "string" }
+            }
+          }
+        },
+
+        "setup_payoffs": {
+          "type": "array",
+          "description": "伏笔埋设-回收追踪。规则引擎 setup_payoff_gap 校验对象",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "setup_summary": { "type": "string" },
+              "setup_scene_card_id": { "type": "string" },
+              "expected_payoff_window": { "type": "string" },
+              "status": { "type": "string", "enum": ["open", "paid_off", "abandoned"] },
+              "payoff_scene_card_id": { "type": "string" },
+              "payoff_summary": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "script": {
+      "type": "object",
+      "description": "剧本正文，按集/章组织。→ 每个 episode 的 body 送 Jellyfish divide-async 切分镜",
+      "properties": {
+        "episodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["index", "body"],
+            "properties": {
+              "index": { "type": "integer" },
+              "title": { "type": "string" },
+              "body": { "type": "string", "description": "该集剧本全文 → Jellyfish chapter + divide-async(script_text)" },
+              "hook": { "type": "string", "description": "集尾续看钩子（短剧硬要求）" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
