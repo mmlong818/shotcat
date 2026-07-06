@@ -5,7 +5,7 @@
 ## 三方定位（勿混淆）
 - `app/` = 平台 底座。**尽量不改源码**，优先加模块/加入口。改前端接口后按其 AGENTS.md 跑 `pnpm run openapi:update`。日后可拉上游更新，故保持低侵入。
 - `knowledge/` = 纯知识资产（来自 yuandian，**不引入其 App 代码**）。story-bible.schema.v1.json 是编剧端↔生产端的共享契约，改它必须同步 bridge 映射。
-- `screenwriter/` = 编剧工作流，产出必须遵循 story-bible.schema。
+- `_archive/screenwriter/` = 已作废的编剧模块（编剧交给原点编剧系统，本工具只接剧本之后的生产）。
 - `bridge/` = 唯一新写的胶水层，读故事圣经 → 调 平台 API。
 
 ## 铁律
