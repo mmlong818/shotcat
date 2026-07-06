@@ -27,6 +27,23 @@ async def list_by_shot(
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def list_by_chapter(
+    db: AsyncSession,
+    *,
+    chapter_id: str,
+) -> list[ShotCharacterLink]:
+    """按章节批量查询角色关联（分镜列表一次拉全，避免逐镜 N 次请求）。"""
+    await require_entity(db, Chapter, chapter_id, detail=entity_not_found("Chapter"))
+
+    stmt = (
+        select(ShotCharacterLink)
+        .join(Shot, Shot.id == ShotCharacterLink.shot_id)
+        .where(Shot.chapter_id == chapter_id)
+        .order_by(ShotCharacterLink.shot_id.asc(), ShotCharacterLink.index.asc(), ShotCharacterLink.id.asc())
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
 async def upsert(
     db: AsyncSession,
     *,

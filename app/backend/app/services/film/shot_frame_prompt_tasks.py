@@ -68,6 +68,9 @@ def _join_context_lines(lines: list[str]) -> str:
 
 
 def _build_character_context(characters: list[Character]) -> str:
+    if not characters:
+        # 空镜必须显式声明，否则图像模型会按场景常识脑补人物（如出租车内自动画出司机乘客）
+        return "本镜为空镜：画面中不出现任何人物（也不要出现人影、剪影、倒影中的人、路人）。"
     lines: list[str] = []
     for character in characters:
         fragments: list[str] = []
@@ -116,6 +119,8 @@ def _build_subject_priority(
         if len(characters) > 2:
             support_names = "、".join(character.name for character in characters[2:])
             parts.append(f"其余角色 {support_names} 仅在能强化画面关系时再补充")
+    else:
+        parts.append("本镜为空镜（无任何人物），以动作拍点描述的物体/环境细节作为画面主体")
     if scenes:
         parts.append(f"优先建立场景 {scenes[0].name} 的环境信息")
     if props:
