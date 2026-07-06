@@ -26,14 +26,26 @@ SYS = f"""你是专业分镜师。把剧本拆成【镜头级】分镜。
 
 每个镜头字段：
 - scene：所属场景名（必须用给定场景名之一）
+- time：该镜头故事时间，仅用 [日/夜/晨/黄昏] 之一；剧本写"持续/稍后"时延续上一场的时间
+- space：内 或 外（室内/室外）
 - title：该镜头一句话动作概述（≤16字）
 - camera_shot：景别代码，仅用 [{SHOTS}] 的英文代码(如 CU)
 - angle：机位代码，仅用 [{ANGLES}] 的英文代码
 - movement：运镜代码，仅用 [{MOVES}] 的英文代码
-- action：该镜头的画面/动作描述（一句话，可含表演）
+- action：**镜头里看见什么**：画面主体是谁/什么、空间位置关系（前座/后座、左/右、前景/背景）、正在发生的动作。
+  写"画面"不写"剧情"；无人物的空镜必须以"空镜："开头（如"空镜：雨点砸在挡风玻璃上，雨刮器静止"）
 - dialogue：该镜头对白原文，无则空字符串
-- duration：建议秒数(整数)
-- characters：该镜头出场角色名数组"""
+- duration：建议秒数(整数)。有对白的镜头必须容纳朗读时间：常规语速每秒 4 字（慢速抒情戏每秒 3 字），
+  即 duration ≥ 对白字数÷4，再加动作/反应的余量
+- characters：**画面中出现的所有角色**名数组（不是"镜头主体"）：过肩镜头必须包含被借肩的背影角色；
+  双人同框(对峙/对坐/并行)必须两人都列；只有画外音/完全不在画内才不列
+
+【镜头语言多样性硬约束（必须满足，先规划配比再输出）】
+1. 固定机位(STATIC)占比不得超过全片镜头的 40%；其余用运动镜头(PAN/TILT/DOLLY_IN/DOLLY_OUT/TRACK/CRANE/HANDHELD/ZOOM_IN/ZOOM_OUT)。
+2. 每进入一个新场景，其建立镜头必须是运动镜头(优先 DOLLY_IN/TRACK/PAN/CRANE)交代空间，不得用 STATIC。
+3. 每一组双人对话，必须至少包含一组过肩正反打：两个相邻镜头 angle 均为 OVER_SHOULDER 且互为反打。
+4. 机位角度不得全程 EYE_LEVEL：压迫/俯视用 HIGH_ANGLE，弱势/仰望用 LOW_ANGLE，情绪失衡可用 DUTCH。
+5. 情绪爆点或信息落点镜头，用推镜(DOLLY_IN)或特写(CU/ECU)强化。"""
 
 USER_TMPL = """【完整剧本】
 {script}
@@ -42,7 +54,7 @@ USER_TMPL = """【完整剧本】
 【角色】{chars}
 
 把全剧本拆成镜头级分镜。短片每个场景一般 3-6 个镜头。
-输出 JSON：{{"shots":[{{"scene":"","title":"","camera_shot":"","angle":"","movement":"","action":"","dialogue":"","duration":6,"characters":[]}}]}}"""
+输出 JSON：{{"shots":[{{"scene":"","time":"日","space":"内","title":"","camera_shot":"","angle":"","movement":"","action":"","dialogue":"","duration":6,"characters":[]}}]}}"""
 
 BASE = "http://localhost:8000/api/v1"
 
@@ -56,14 +68,24 @@ def _norm(v, valid, default):
     return v if v in valid else default
 
 
-def _duration(v):
-    """容错解析建议秒数：提取前导数字(如 '6秒' → 6)，缺省 5，夹到 1-60。"""
+_DLG_PUNCT = re.compile(r"[「」『』“”\s，。！？；：、…—·,.!?;:]")
+
+
+def _dlg_min_secs(dialogue):
+    """对白朗读时间下限：常规语速每秒 4 字（去引号/标点后计字，向上取整）。"""
+    n = len(_DLG_PUNCT.sub("", dialogue or ""))
+    return (n + 3) // 4 if n else 0
+
+
+def _duration(v, dialogue=None):
+    """容错解析建议秒数：提取前导数字(如 '6秒' → 6)，缺省 5；
+    有对白时下限抬到朗读时间(常规每秒4字)，夹到 1-60。"""
     if isinstance(v, (int, float)):
         n = int(v)
     else:
         m = re.match(r"\s*(\d+)", str(v or ""))
         n = int(m.group(1)) if m else 5
-    return max(1, min(60, n))
+    return max(1, min(60, max(n, _dlg_min_secs(dialogue))))
 
 
 def _req(method, path, body=None, timeout=30):
@@ -90,6 +112,8 @@ def run(pid: str, model: str):
         raise SystemExit("无章节")
     ch = chapters[0]  # 短片单章节；多集可扩展为逐章
     script = "\n\n".join(c.get("raw_text", "") for c in chapters)
+    if not script.strip():
+        raise SystemExit("项目无剧本正文，请先在剧本页粘贴剧本（避免空剧本白调 GLM）")
     scenes = items(f"/studio/entities/scene?project_id={pid}&page_size=100")
     chars = items(f"/studio/entities/character?project_id={pid}&page_size=100")
     scene_id_by_name = {s["name"]: s["id"] for s in scenes}
@@ -111,6 +135,13 @@ def run(pid: str, model: str):
     for i, s in enumerate(shots, 1):
         if not (s.get("title") or "").strip() or not (s.get("action") or "").strip():
             raise SystemExit(f"镜{i} 缺必填字段(title/action)，中止（未改动数据库）")
+
+    # 空镜前缀不依赖 GLM 遵守（实测遵守率低）：characters 为空且 action 未以"空镜"开头则后处理补上，
+    # 供下游帧提示词识别为无人物镜头。
+    for s in shots:
+        act = (s.get("action") or "").strip()
+        if not (s.get("characters") or []) and act and not act.startswith("空镜"):
+            s["action"] = "空镜：" + act
 
     # 校验通过后再清该章节现有镜头(可重跑)：先删 detail 再删 shot；任一失败即中止，不谎报已清除
     old = items(f"/studio/shots?chapter_id={ch['id']}")
@@ -141,8 +172,18 @@ def run(pid: str, model: str):
             "camera_shot": _norm(s.get("camera_shot"), VALID_SHOT, "MS"),
             "angle": _norm(s.get("angle"), VALID_ANGLE, "EYE_LEVEL"),
             "movement": _norm(s.get("movement"), VALID_MOVE, "STATIC"),
-            "duration": _duration(s.get("duration")),
-            "action_beats": [b for b in [s.get("action"), s.get("dialogue")] if b],
+            "duration": _duration(s.get("duration"), s.get("dialogue")),
+            # 对白包「」入库：下游(分镜展示/帧提示词)可明确区分动作与台词
+            "action_beats": [b for b in [
+                s.get("action"),
+                (lambda d: d and (d if d.startswith("「") else f"「{d}」"))((s.get("dialogue") or "").strip()),
+            ] if b],
+            # 场次时间/内外景：ShotDetail 无专用字段，按 "时:X"/"景:X" 约定存 mood_tags
+            # （mood_tags 会进帧提示词链，时间与内外景本身也是画面生成的关键信息）
+            "mood_tags": [t for t in [
+                f"时:{s.get('time')}" if s.get("time") in {"日", "夜", "晨", "黄昏"} else None,
+                f"景:{s.get('space')}" if s.get("space") in {"内", "外"} else None,
+            ] if t],
         }
         sid_scene = scene_id_by_name.get(s.get("scene", ""))
         if sid_scene:

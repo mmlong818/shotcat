@@ -11,7 +11,8 @@ from http_util import get_all
 SYS = """你是剧本设定抽取专家。通读完整剧本，抽取：
 - 角色：所有有台词或明确动作的人物。
 - 场景：独立地点（地点变化或同地点明显时间跳跃各算一个）。
-- 物件：有叙事功能（被拿起/指向/谈论/象征/推动情节）的道具，纯装饰不算。
+- 物件（道具）判据——三选一才算，其余不列：①能被角色拿起/携带/递出/操作的可移动物品；②被台词点名或成为镜头/情节焦点的物品；③承载象征意义、推动情节的物品。
+  【明确排除】车辆/房屋/门/窗/百叶窗/桌椅/沙发/地毯/方向盘/仪表/计价器/家具/建筑构件等固定或场景固有物，一律归入场景描述，绝不单列为道具。宁缺毋滥，只保留真正影响剧情的关键道具（通常一集 2-4 个）。
 名称一律用剧本原文；描述写视觉化简述（后续会锁定细化，不必很长）。
 只输出 JSON。"""
 
@@ -65,7 +66,9 @@ def wait_get(path, tries=30):
 
 
 def run(pid: str, model: str):
-    proj = _req("GET", f"/studio/projects/{pid}")[1].get("data", {})
+    proj = _req("GET", f"/studio/projects/{pid}")[1].get("data") or {}
+    if not proj:
+        raise SystemExit(f"项目 {pid} 不存在")
     style = proj.get("style") or "真人都市"
     visual = proj.get("visual_style") or "现实"
     chapters = sorted(items(f"/studio/chapters?project_id={pid}&page_size=100"), key=lambda c: c.get("index", 0))

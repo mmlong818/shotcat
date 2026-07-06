@@ -27,7 +27,7 @@ def _extract_json(text: str):
     return json.loads(t)
 
 
-def chat_json(system: str, user: str, *, model: str = "glm-4.6", temperature: float = 0.7, timeout: int = 240):
+def chat_json(system: str, user: str, *, model: str = "glm-4.6", temperature: float = 0.7, timeout: int = 240, retries: int = 2):
     body = {
         "model": model,
         "messages": [
@@ -37,12 +37,20 @@ def chat_json(system: str, user: str, *, model: str = "glm-4.6", temperature: fl
         "temperature": temperature,
         "response_format": {"type": "json_object"},
     }
-    req = urllib.request.Request(
-        f"{BASE}/chat/completions",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {_key()}"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        resp = json.loads(r.read())
-    return _extract_json(resp["choices"][0]["message"]["content"])
+    last = None
+    for attempt in range(retries + 1):
+        req = urllib.request.Request(
+            f"{BASE}/chat/completions",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {_key()}"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                resp = json.loads(r.read())
+            return _extract_json(resp["choices"][0]["message"]["content"])
+        except (TimeoutError, urllib.error.URLError, ConnectionError) as e:  # 瞬时网络/读超时才重试
+            last = e
+            if attempt < retries:
+                print(f"  GLM 请求失败({type(e).__name__})，重试 {attempt + 1}/{retries}…", flush=True)
+    raise last
