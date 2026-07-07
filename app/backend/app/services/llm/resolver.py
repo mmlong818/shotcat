@@ -171,13 +171,18 @@ def _build_chat_openai_model(
     kwargs: dict[str, Any] = dict(model.params or {})
     kwargs["model"] = model.name
     kwargs["api_key"] = api_key
-    kwargs.setdefault("temperature", 0)
+
+    provider_name = (provider.name or provider.id or "").strip().lower()
+    if provider_name == "openai" and model.name.startswith("gpt-5"):
+        kwargs.pop("temperature", None)
+    else:
+        kwargs.setdefault("temperature", 0)
 
     base_url = resolve_effective_base_url(provider=provider, category=ModelCategoryKey.text)
     if base_url:
         kwargs.setdefault("base_url", base_url)
 
-    if not thinking:
+    if not thinking and provider_name not in {"openai"}:
         extra_body = dict(kwargs.get("extra_body") or {})
         extra_body["enable_thinking"] = False
         kwargs["extra_body"] = extra_body

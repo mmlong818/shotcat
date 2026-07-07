@@ -56,6 +56,7 @@ def _prepare_shot_frame_input(input_dict: dict[str, Any]) -> dict[str, Any]:
         "screen_direction_guidance",
         "frame_specific_guidance",
         "director_command_summary",
+        "art_direction",
         "retry_guidance",
     ):
         if key not in out or out[key] is None:
@@ -103,6 +104,7 @@ _SHOT_FRAME_INPUT_VARS = [
     "screen_direction_guidance",
     "frame_specific_guidance",
     "director_command_summary",
+    "art_direction",
     "retry_guidance",
 ]
 
@@ -138,6 +140,7 @@ _SHOT_FRAME_TEMPLATE = """你是一名专业影视分镜提示词设计师，需
 19. 若提供了导演指令摘要，应将其视为最高优先级的镜头执行约束，优先体现到最终画面描述中
 20. 若当前为首帧，只能表现事件触发瞬间或最初反应，不要直接把后续完成动作、最终姿态或情绪爆发结果写进画面
 21. 若当前为首帧且镜头存在连续动作链，应优先使用“刚开始 / 尚未完成 / 被打断”的未完成态表达，而不是结果态表达
+22. 若提供了艺术指导统筹，必须让最终画面同时符合剧情、项目风格、角色特征、场景质感与相邻镜头连续性，不得只机械堆叠镜头信息
 
 ## 镜头信息
 剧本摘录：{script_excerpt}
@@ -174,6 +177,9 @@ _SHOT_FRAME_TEMPLATE = """你是一名专业影视分镜提示词设计师，需
 朝向与视线建议：{screen_direction_guidance}
 当前帧专项建议：{frame_specific_guidance}
 导演指令摘要：{director_command_summary}
+
+## 艺术指导统筹
+{art_direction}
 
 修正要求：{retry_guidance}
 

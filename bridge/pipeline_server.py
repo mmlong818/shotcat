@@ -10,7 +10,7 @@ from __future__ import annotations
 import io, json, threading, uuid, contextlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import visual_dict, shot_breakdown, unit_gen, extract_setup
+import glm, visual_dict, shot_breakdown, unit_gen, extract_setup
 
 STEPS = {
     "extract-setup": extract_setup.run,
@@ -40,8 +40,12 @@ def _run(job_id: str, step: str, pid: str, model: str):
         try:
             with contextlib.redirect_stdout(_JobLog(job)):
                 STEPS[step](pid, model)
+                if glm.LAST_REQUEST_DEBUG:
+                    print(f"[llm-debug] {json.dumps(glm.LAST_REQUEST_DEBUG, ensure_ascii=False)}")
             job["status"] = "done"
         except SystemExit as e:
+            if glm.LAST_REQUEST_DEBUG:
+                job["log"] += f"[llm-debug] {json.dumps(glm.LAST_REQUEST_DEBUG, ensure_ascii=False)}\n"
             job["status"] = "error"; job["error"] = str(e)
         except Exception as e:  # noqa: BLE001
             job["status"] = "error"; job["error"] = f"{type(e).__name__}: {e}"

@@ -6,10 +6,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import router as api_v1_router
 from app.bootstrap import bootstrap_all_registries
 from app.config import settings
+from app.core.storage import LOCAL_STORAGE_ROOT
 from app.schemas.common import ApiResponse
 
 
@@ -95,6 +97,8 @@ app.add_middleware(
 )
 
 app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
+LOCAL_STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+app.mount("/local-storage", StaticFiles(directory=str(LOCAL_STORAGE_ROOT)), name="local-storage")
 # 影视技能路由同时挂到主应用，保证 /api/v1/film 一定可访问
 
 

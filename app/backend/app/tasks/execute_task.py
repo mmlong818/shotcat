@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import uuid
 
 from celery.result import AsyncResult
 
@@ -31,13 +33,24 @@ def _record_executor_dispatch(task_id: str, *, executor_type: str, executor_task
 
 
 def enqueue_task_execution(task_id: str) -> AsyncResult:
-    async_result = run_task_celery.delay(task_id)
-    _record_executor_dispatch(
-        task_id,
-        executor_type="celery",
-        executor_task_id=async_result.id,
-    )
-    return async_result
+    try:
+        async_result = run_task_celery.delay(task_id)
+        _record_executor_dispatch(
+            task_id,
+            executor_type="celery",
+            executor_task_id=async_result.id,
+        )
+        return async_result
+    except Exception as exc:  # noqa: BLE001
+        local_id = f"local-{uuid.uuid4().hex}"
+        logger.warning("celery unavailable, executing task locally: task_id=%s error=%s", task_id, exc)
+        _record_executor_dispatch(
+            task_id,
+            executor_type="local-thread",
+            executor_task_id=local_id,
+        )
+        threading.Thread(target=run_task_celery.run, args=(task_id,), daemon=True).start()
+        return AsyncResult(local_id, app=celery_app)
 
 
 def revoke_task_execution(task_id: str, *, terminate: bool = True, signal: str = "SIGTERM") -> bool:

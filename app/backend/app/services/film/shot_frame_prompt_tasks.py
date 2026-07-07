@@ -105,6 +105,42 @@ def _build_named_asset_context(assets: list[Scene] | list[Prop] | list[Costume])
     return _join_context_lines(lines)
 
 
+def _build_art_direction_context(
+    *,
+    project: object | None,
+    characters: list[Character],
+    scenes: list[Scene],
+    props: list[Prop],
+    costumes: list[Costume],
+) -> str:
+    """生成艺术指导统筹说明，统一约束画面提示词的剧情、风格和实体一致性。"""
+    project_name = _compact_text(getattr(project, "name", None))
+    project_desc = _compact_text(getattr(project, "description", None))
+    visual_style = _enum_value(getattr(project, "visual_style", None))
+    style = _enum_value(getattr(project, "style", None))
+    lines = [
+        "你是本项目的艺术指导，负责统筹画面提示词，而不是简单拼接字段。",
+        "最终提示词必须同时符合剧情意图、项目风格、角色特征、场景质感和相邻镜头连续性。",
+    ]
+    project_parts = [part for part in [project_name, project_desc, visual_style, style] if part]
+    if project_parts:
+        lines.append(f"项目基调：{'；'.join(project_parts)}。")
+    if characters:
+        lines.append("角色一致性：保留已确认角色的年龄、气质、外貌、服装和身份，不要改名、换脸或改造为不符合剧情的人设。")
+    else:
+        lines.append("空镜一致性：没有角色时，画面应以环境、道具或动作痕迹承担叙事，不要自动添加人物。")
+    if scenes:
+        scene_names = "、".join(scene.name for scene in scenes[:2])
+        lines.append(f"场景一致性：以 {scene_names} 的空间结构、材质、光线和年代痕迹作为环境锚点。")
+    if props:
+        prop_names = "、".join(prop.name for prop in props[:3])
+        lines.append(f"道具控制：{prop_names} 只在符合剧情动作或画面焦点时出现，不要喧宾夺主。")
+    if costumes:
+        lines.append("服装控制：服装用于稳定角色身份、时代和生活状态，不要抢占画面主体。")
+    lines.append("生成时先判断当前帧真正要表达什么，再选择画面主体、空间重点、光线和情绪，不要平均罗列所有信息。")
+    return "\n".join(lines)
+
+
 def _build_subject_priority(
     *,
     characters: list[Character],
@@ -746,6 +782,13 @@ async def build_run_args(
             "scene_context": _build_named_asset_context(scenes),
             "prop_context": _build_named_asset_context(props),
             "costume_context": _build_named_asset_context(costumes),
+            "art_direction": _build_art_direction_context(
+                project=project,
+                characters=characters,
+                scenes=scenes,
+                props=props,
+                costumes=costumes,
+            ),
             "subject_priority": _build_subject_priority(
                 characters=characters,
                 scenes=scenes,

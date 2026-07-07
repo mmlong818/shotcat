@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, BinaryIO
 
 from anyio import to_thread
@@ -16,7 +17,11 @@ import boto3
 from botocore.client import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from app.config import settings
+from app.config import BACKEND_ROOT, settings
+
+
+LOCAL_STORAGE_ROOT = BACKEND_ROOT / "local-storage"
+LOCAL_STORAGE_PUBLIC_BASE_URL = "http://localhost:8000/local-storage"
 
 
 @dataclass
@@ -48,6 +53,10 @@ def _build_s3_client():
     return client
 
 
+def is_local_storage_enabled() -> bool:
+    return not bool(settings.s3_bucket_name)
+
+
 def _normalize_key(key: str) -> str:
     key = key.lstrip("/")
     base = settings.s3_base_path.strip().strip("/")
@@ -58,6 +67,8 @@ def _normalize_key(key: str) -> str:
 
 def _build_public_url(key: str) -> str:
     key = _normalize_key(key)
+    if is_local_storage_enabled():
+        return f"{LOCAL_STORAGE_PUBLIC_BASE_URL}/{key}"
     if settings.s3_public_base_url:
         base = settings.s3_public_base_url.rstrip("/")
         return f"{base}/{key}"
@@ -128,6 +139,22 @@ async def upload_file(
     - extra_args：透传给 boto3 的 ExtraArgs，如 {"ACL": "public-read"}。
     """
 
+    if is_local_storage_enabled():
+        local_key = _normalize_key(key)
+        target = LOCAL_STORAGE_ROOT / local_key
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(data, (bytes, bytearray)):
+            target.write_bytes(bytes(data))
+        else:
+            target.write_bytes(data.read())
+        return StoredFileInfo(
+            key=local_key,
+            url=_build_public_url(key),
+            size=target.stat().st_size,
+            content_type=content_type,
+            etag=None,
+        )
+
     client = _build_s3_client()
     bucket = settings.s3_bucket_name
     if bucket is None:
@@ -155,6 +182,9 @@ async def upload_file(
 
 async def download_file(*, key: str) -> bytes:
     """下载文件内容（整个对象读入内存）。"""
+    if is_local_storage_enabled():
+        return (LOCAL_STORAGE_ROOT / _normalize_key(key)).read_bytes()
+
     client = _build_s3_client()
     bucket = settings.s3_bucket_name
     if bucket is None:
@@ -172,6 +202,17 @@ async def download_file(*, key: str) -> bytes:
 
 async def get_file_info(*, key: str) -> StoredFileInfo:
     """获取文件元信息（不下载内容）。"""
+    if is_local_storage_enabled():
+        local_key = _normalize_key(key)
+        path = LOCAL_STORAGE_ROOT / local_key
+        return StoredFileInfo(
+            key=local_key,
+            url=_build_public_url(key),
+            size=path.stat().st_size if path.exists() else None,
+            content_type=None,
+            etag=None,
+        )
+
     client = _build_s3_client()
     bucket = settings.s3_bucket_name
     if bucket is None:
@@ -201,6 +242,26 @@ async def get_file_info(*, key: str) -> StoredFileInfo:
 
 async def list_files(*, prefix: str = "") -> list[StoredFileInfo]:
     """根据前缀列出文件（最多一页，若需翻页可扩展）。"""
+    if is_local_storage_enabled():
+        base = LOCAL_STORAGE_ROOT / _normalize_key(prefix) if prefix else LOCAL_STORAGE_ROOT
+        if not base.exists():
+            return []
+        results: list[StoredFileInfo] = []
+        for path in base.rglob("*"):
+            if not path.is_file():
+                continue
+            local_key = path.relative_to(LOCAL_STORAGE_ROOT).as_posix()
+            results.append(
+                StoredFileInfo(
+                    key=local_key,
+                    url=_build_public_url(local_key),
+                    size=path.stat().st_size,
+                    content_type=None,
+                    etag=None,
+                )
+            )
+        return results
+
     client = _build_s3_client()
     bucket = settings.s3_bucket_name
     if bucket is None:
@@ -232,6 +293,12 @@ async def list_files(*, prefix: str = "") -> list[StoredFileInfo]:
 
 async def delete_file(*, key: str) -> None:
     """删除文件。"""
+    if is_local_storage_enabled():
+        path = LOCAL_STORAGE_ROOT / _normalize_key(key)
+        if path.exists():
+            path.unlink()
+        return
+
     client = _build_s3_client()
     bucket = settings.s3_bucket_name
     if bucket is None:

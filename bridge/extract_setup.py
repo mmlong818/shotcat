@@ -14,6 +14,11 @@ SYS = """你是剧本设定抽取专家。通读完整剧本，抽取：
 - 物件（道具）判据——三选一才算，其余不列：①能被角色拿起/携带/递出/操作的可移动物品；②被台词点名或成为镜头/情节焦点的物品；③承载象征意义、推动情节的物品。
   【明确排除】车辆/房屋/门/窗/百叶窗/桌椅/沙发/地毯/方向盘/仪表/计价器/家具/建筑构件等固定或场景固有物，一律归入场景描述，绝不单列为道具。宁缺毋滥，只保留真正影响剧情的关键道具（通常一集 2-4 个）。
 名称一律用剧本原文；描述写视觉化简述（后续会锁定细化，不必很长）。
+【场景描述硬规则】
+- 场景就是地点环境，不是剧情摘要。
+- 只写地点类型、空间结构、方位布局、建筑/地面/墙面/门窗/树木/陈设/材质、光线、天气、年代痕迹。
+- 不写任何人物、角色身份、动作、对白、剧情事件、回忆、幻影、情绪意义或叙事功能。
+- 如果剧本只提供人物动作，请只保留动作发生的地点名称，并把描述写成空场景环境。
 只输出 JSON。"""
 
 USER_TMPL = """【完整剧本】
@@ -22,11 +27,18 @@ USER_TMPL = """【完整剧本】
 输出 JSON：
 {{
   "characters": [{{"name":"", "appearance":"外貌简述(性别/年龄/发型/穿着大致)", "default_costume":"默认服装简述"}}],
-  "scenes": [{{"name":"", "description":"空间/氛围简述"}}],
+  "scenes": [{{"name":"", "description":"只写空场景环境：空间结构/陈设/材质/光线/年代痕迹；不得含人物、动作、剧情、回忆"}}],
   "props": [{{"name":"", "description":"外观简述"}}]
 }}"""
 
 BASE = "http://localhost:8000/api/v1"
+
+
+def clean_scene_text(value: str) -> str:
+    # Do not try to maintain an endless blocklist here. Scene descriptions
+    # are generated upstream as environment-only text; if empty, callers fall
+    # back to the scene name.
+    return (value or "").strip()
 
 
 def _req(m, p, b=None, t=40):
@@ -109,7 +121,7 @@ def run(pid: str, model: str):
 
     for s in sc:
         eid = sc_state[0].get(s["name"]) or next_id(sc_state, "scene")
-        asset("scene", eid, s["name"], s.get("description", ""))
+        asset("scene", eid, s["name"], clean_scene_text(s.get("description", "")) or s["name"])
     for p in pr:
         eid = pr_state[0].get(p["name"]) or next_id(pr_state, "prop")
         asset("prop", eid, p["name"], p.get("description", ""))
