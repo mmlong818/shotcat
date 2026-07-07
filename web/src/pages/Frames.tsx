@@ -120,11 +120,11 @@ export default function Frames({ project }: { project: Project | null }) {
       if (!prompt) throw new Error('无可用提示词（该镜头缺少剧本摘录）')
 
       // 2) 生成图（target_ratio 必填；503=无图像模型 会在此同步抛出）
-      // 带上镜头关联的造型图作参考图（角色优先）——人物跨镜一致性的关键
-      const refs = await api.frameRefs(shotId)
+      // 带上镜头关联的造型图作参考图（角色→场景→道具）——跨镜一致性的关键
+      const refs = await api.frameRefs(shotId, project?.id)
       if (alive()) setFrame(ft, { stage: refs.length ? `生成画面…（${refs.length} 张参考图）` : '生成画面…' })
       const ratio = project?.default_video_ratio || '9:16'
-      const itask = await api.createFrameImageTask(shotId, ft, prompt, ratio, refs)
+      const itask = await api.createFrameImageTask(shotId, ft, prompt + api.refGuard(refs), ratio, refs)
       const is = await api.pollTask(itask, (p) => { if (alive()) setFrame(ft, { stage: `生成画面… ${p}%` }) }, 120, cancelled)
       if (is.status !== 'succeeded') {
         const r = await api.taskResult(itask).catch(() => null)
@@ -157,7 +157,7 @@ export default function Frames({ project }: { project: Project | null }) {
   const readyCount = (['first', 'key', 'last'] as FrameType[]).filter((t) => frames[t].fileId).length
 
   return (
-      <div className="work">
+      <div className="work frames-page">
         <div className="work-head">
           <h1>画面工作台</h1>
           <div className="spacer" />
@@ -200,7 +200,7 @@ export default function Frames({ project }: { project: Project | null }) {
             })}
           </div>
 
-          <div>
+          <div className="stage-col">
             <div className="stage-title">
               <div className="h">
                 镜头 {sel?.index ?? '—'} · {sel?.title || '未选择'}
@@ -290,9 +290,12 @@ export default function Frames({ project }: { project: Project | null }) {
                   {cast.length === 0 && <div className="muted" style={{ fontSize: 12 }}>暂无角色 · 先在造型页设置</div>}
                   {cast.map((c) => (
                     <div className="ref-ent" key={c.id}>
-                      <div className="rthumb" />
-                      <div className="ri"><div className="rn">{c.name}</div><div className="rd">{c.description || '未填写外貌'}</div></div>
-                      <span className="rid">{c.id}</span>
+                      {c.thumbnail ? (
+                        <img src={c.thumbnail} alt={c.name} title="点击放大" onClick={() => setLb(c.thumbnail!)} />
+                      ) : (
+                        <div className="ref-empty">未生成</div>
+                      )}
+                      <div className="rn">{c.name}</div>
                     </div>
                   ))}
                 </div>
@@ -303,9 +306,12 @@ export default function Frames({ project }: { project: Project | null }) {
                   {scenes.length === 0 && <div className="muted" style={{ fontSize: 12 }}>暂无场景 · 先在造型页设置</div>}
                   {scenes.map((s) => (
                     <div className="ref-ent" key={s.id}>
-                      <div className="rthumb scene" />
-                      <div className="ri"><div className="rn">{s.name}</div><div className="rd">{s.description || '未填写场景描述'}</div></div>
-                      <span className="rid">{s.id}</span>
+                      {s.thumbnail ? (
+                        <img src={s.thumbnail} alt={s.name} title="点击放大" onClick={() => setLb(s.thumbnail!)} />
+                      ) : (
+                        <div className="ref-empty">未生成</div>
+                      )}
+                      <div className="rn">{s.name}</div>
                     </div>
                   ))}
                 </div>

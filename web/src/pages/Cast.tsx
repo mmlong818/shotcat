@@ -4,7 +4,6 @@ import Lightbox from '../Lightbox'
 
 const CATS = [
   { key: 'character', label: '角色' },
-  { key: 'actor', label: '演员' },
   { key: 'scene', label: '场景' },
   { key: 'prop', label: '道具' },
   { key: 'costume', label: '服装' },
@@ -19,6 +18,7 @@ export default function Cast({ project }: { project: Project | null }) {
   const [err, setErr] = useState('')
   const [batch, setBatch] = useState(false)
   const [pipe, setPipe] = useState('') // 视觉词典生成中
+  const [angles, setAngles] = useState<Record<string, { id: number; file_id: string; view_angle: string }[]>>({}) // 实体全部角度图
   const [lb, setLb] = useState<string | null>(null)
   const cancelledRef = useRef(false) // 卸载后停止轮询/批量
   // 挂载时必须重置：React 18 StrictMode(dev) 会模拟卸载再挂载，ref 跨挂载保留，
@@ -36,6 +36,21 @@ export default function Cast({ project }: { project: Project | null }) {
   useEffect(loadAll, [project])
 
   const items = data[tab] ?? []
+
+  // 当前 tab 实体的全部角度图（BACK/DETAIL 等多角度参考也要能看到）
+  useEffect(() => {
+    let stale = false
+    ;(async () => {
+      const m: Record<string, { id: number; file_id: string; view_angle: string }[]> = {}
+      for (const e of items) {
+        const imgs = await api.entityImages(tab, e.id).catch(() => [])
+        m[e.id] = imgs.filter((x: any) => x.file_id)
+      }
+      if (!stale) setAngles(m)
+    })()
+    return () => { stale = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, data])
   const roleLabel = useMemo(() => CATS.find((c) => c.key === tab)?.label ?? '', [tab])
   const thumbOf = (e: Entity) => (fresh[e.id] ? fileUrl(fresh[e.id]) : e.thumbnail || '')
   const visualDesc = (e: Entity | null) => (e?.description || '').split('【表演基线】')[0].trim()
@@ -127,6 +142,14 @@ export default function Cast({ project }: { project: Project | null }) {
                   <div className="cc-ph"><span>○ 未生成</span></div>
                 )}
               </div>
+              {(angles[e.id]?.length ?? 0) > 1 && (
+                <div className="cc-angles">
+                  {angles[e.id].map((im) => (
+                    <img key={im.id} src={fileUrl(im.file_id)} alt={im.view_angle} title={`${im.view_angle} · 点击放大`}
+                      onClick={() => setLb(fileUrl(im.file_id))} />
+                  ))}
+                </div>
+              )}
               <div className="cc-body">
                 <div className="cc-h">
                   <span className="n">{e.name}</span>

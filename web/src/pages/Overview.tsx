@@ -9,6 +9,7 @@ const STAGES = [
   { to: '/cast', label: '设定', desc: '角色/场景/道具/服装 + 造型图', icon: 'cast' },
   { to: '/board', label: '分镜', desc: '镜头级时序 · 景别机位', icon: 'board' },
   { to: '/frames', label: '画面', desc: '首/关/尾帧 · 图生视频', icon: 'frames' },
+  { to: '/gallery', label: '总览', desc: '全集画面一览', icon: 'gallery' },
 ]
 
 function SIcon({ n }: { n: string }) {
@@ -17,11 +18,12 @@ function SIcon({ n }: { n: string }) {
     cast: <g><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></g>,
     board: <g><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M9 4v16" /></g>,
     frames: <g><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 9h4v10M17 5v14h4M7 5v4" /></g>,
+    gallery: <g><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.6" /><path d="M3 16l5-4 4 3 4-5 5 6" /></g>,
   }
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">{p[n]}</svg>
 }
 
-export default function Overview({ project }: { project: Project | null }) {
+export default function Overview({ project, onRatioChange }: { project: Project | null; onRatioChange?: (r: string) => void }) {
   const [st, setSt] = useState<Stats | null>(null)
   const [err, setErr] = useState(false)
   const navigate = useNavigate()
@@ -59,7 +61,15 @@ export default function Overview({ project }: { project: Project | null }) {
         <div className="ov-sub">{project.description || '短剧项目'}</div>
         <div className="ov-meta">
           <span>{project.style || '—'}</span><span>·</span>
-          <span>画幅 {project.default_video_ratio || '9:16'}</span><span>·</span>
+          <label className="ratio-sel" title="画幅比例（项目级，影响生图/生视频）">
+            画幅
+            <select value={project.default_video_ratio || '9:16'} onChange={(e) => onRatioChange?.(e.target.value)}>
+              {['9:16', '16:9', '1:1', '4:3', '3:4', '2:3', '3:2', '21:9'].map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </label>
+          <span>·</span>
           <span className="mono">{project.id}</span>
         </div>
       </div>

@@ -118,8 +118,8 @@ export default function Storyboard({ project }: { project: Project | null }) {
           if (ps.status === 'succeeded') prompt = ((await api.taskResult(pt)).result?.prompt || '').trim()
         } catch {}
         if (!prompt) prompt = [s.camera_shot, s.title, s.script_excerpt].filter(Boolean).join('，').slice(0, 300)
-        const refs = await api.frameRefs(s.id) // 造型图作参考，锚定人物一致性
-        const it = await api.createFrameImageTask(s.id, 'key', prompt, ratio, refs)
+        const refs = await api.frameRefs(s.id, project?.id) // 角色/场景/道具造型图作参考
+        const it = await api.createFrameImageTask(s.id, 'key', prompt + api.refGuard(refs), ratio, refs)
         await api.pollTask(it, undefined, 120, cancelled)
       } catch {}
     }

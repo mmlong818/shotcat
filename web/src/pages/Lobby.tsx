@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type Project } from '../lib/api'
+import { api, fileUrl, type Project } from '../lib/api'
 
 const STYLES = ['真人都市', '真人科幻', '真人古装', '动漫科幻', '动漫3D', '国漫', '水墨画']
 const VISUALS = ['现实', '动漫']
@@ -12,10 +12,26 @@ export default function Lobby({ onOpen }: { onOpen: (p: Project) => void }) {
   const [form, setForm] = useState({ name: '', style: '真人都市', visual_style: '现实', default_video_ratio: '9:16', description: '' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [covers, setCovers] = useState<Record<string, string>>({}) // 项目封面：第一个有图镜头的关键帧
 
   const load = () => {
     setLoading(true)
-    api.projects().then(setProjects).catch(() => setProjects([])).finally(() => setLoading(false))
+    api.projects().then((ps) => {
+      setProjects(ps)
+      // 镜头 id 形如 {pid}_chNN__shot_NNN，帧图索引按前缀归组即可得各项目封面
+      api.frameIndex().then((idx) => {
+        const m: Record<string, string> = {}
+        const shotIds = Object.keys(idx).sort()
+        for (const p of ps) {
+          for (const sid of shotIds) {
+            if (!sid.startsWith(p.id + '_')) continue
+            const f = idx[sid].key || idx[sid].first || idx[sid].last
+            if (f) { m[p.id] = fileUrl(f); break }
+          }
+        }
+        setCovers(m)
+      }).catch(() => {})
+    }).catch(() => setProjects([])).finally(() => setLoading(false))
   }
   useEffect(load, [])
 
@@ -65,7 +81,11 @@ export default function Lobby({ onOpen }: { onOpen: (p: Project) => void }) {
         <div className="plobby">
           {projects.map((p) => (
             <div className="pcard" key={p.id} onClick={() => onOpen(p)}>
-              <div className="cover"><span className="init">{p.name?.slice(0, 1) || '剧'}</span></div>
+              <div className="cover">
+                {covers[p.id]
+                  ? <img src={covers[p.id]} alt={p.name} loading="lazy" />
+                  : <span className="init">{p.name?.slice(0, 1) || '剧'}</span>}
+              </div>
               <div className="pmeta">
                 <div className="pn">{p.name}</div>
                 <div className="ps">

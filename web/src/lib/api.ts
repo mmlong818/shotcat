@@ -135,15 +135,48 @@ export const api = {
     get<Paged<{ type: string; id: string; image_id: number | null; file_id: string | null }>>(
       `/studio/shots/${shotId}/linked-assets?page_size=50`,
     ).then((d) => d.items),
-  // 取该镜头可用的参考图（角色造型优先，最多 6 张）：人物一致性的关键——
-  // 有参考图时后端 OpenAI 通道自动走 /images/edits（图生图），角色脸就锚在造型图上
-  async frameRefs(shotId: string) {
-    const order: Record<string, number> = { character: 0, costume: 1, scene: 2, prop: 3 }
-    const items = await api.shotLinkedAssets(shotId).catch(() => [])
-    return items
-      .filter((x) => x.file_id)
-      .sort((a, b) => (order[a.type] ?? 9) - (order[b.type] ?? 9))
-      .slice(0, 6)
+  // 取该镜头可用的参考图（角色优先→场景→道具，最多 6 张）：一致性的关键——
+  // 有参考图时后端 OpenAI 通道自动走 /images/edits（图生图），脸/场景/道具都锚在造型图上。
+  // 注意：bridge 拆镜只写 detail.scene_id 不建 scene/prop links，linked-assets 只有角色，
+  // 场景从镜头详情补（同场景取最多 2 个不同角度），道具按名称命中动作/台词文本补。
+  async frameRefs(shotId: string, projectId?: string) {
+    const order: Record<string, number> = { character: 0, costume: 1, prop: 2, scene: 3 }
+    const refs = (await api.shotLinkedAssets(shotId).catch(() => [])).filter((x) => x.file_id)
+    const detail = await api.shotDetail(shotId)
+
+    // 道具：仅名称命中本镜动作/台词的才算必要（≤2）
+    if (projectId && detail && !refs.some((r) => r.type === 'prop')) {
+      const text = [...(detail.action_beats || []), detail.description || ''].join('')
+      const props = await api.entities('prop', projectId).catch(() => [] as Entity[])
+      for (const p of props.filter((x) => x.name && text.includes(x.name)).slice(0, 2)) {
+        const im = (await api.entityImages('prop', p.id).catch(() => []))[0]
+        if (im?.file_id) refs.push({ type: 'prop', id: p.id, image_id: im.id, file_id: im.file_id })
+      }
+    }
+
+    // 场景：按景别给必要配额——特写背景虚化不给，中景 1 张，远景 2 张；纯环境空镜保底 1 张
+    const cam = detail?.camera_shot || 'MS'
+    let sceneQuota = ['ECU', 'CU'].includes(cam) ? 0 : ['MCU', 'MS'].includes(cam) ? 1 : 2
+    if (!refs.length) sceneQuota = Math.max(sceneQuota, 1)
+    if (detail?.scene_id && sceneQuota > 0 && !refs.some((r) => r.type === 'scene')) {
+      const imgs = (await api.entityImages('scene', detail.scene_id).catch(() => [])).filter((x: any) => x.file_id)
+      // 近景优先细节角度，远景优先主视角+反打
+      const pref = ['ECU', 'CU', 'MCU'].includes(cam) ? ['DETAIL', 'FRONT', 'BACK'] : ['FRONT', 'BACK', 'DETAIL']
+      imgs.sort((a: any, b: any) => pref.indexOf(a.view_angle) - pref.indexOf(b.view_angle))
+      imgs.slice(0, sceneQuota).forEach((im: any) =>
+        refs.push({ type: 'scene', id: detail.scene_id, image_id: im.id, file_id: im.file_id }))
+    }
+    return refs.sort((a, b) => (order[a.type] ?? 9) - (order[b.type] ?? 9)).slice(0, 6)
+  },
+  // 有场景/道具参考时，提示词追加硬约束
+  refGuard(refs: { type: string }[]) {
+    const hasS = refs.some((r) => r.type === 'scene')
+    const hasP = refs.some((r) => r.type === 'prop')
+    if (!hasS && !hasP) return ''
+    const parts = []
+    if (hasS) parts.push('场景的空间结构、陈设与材质')
+    if (hasP) parts.push('道具的外观与细节')
+    return `。严格遵循参考图：${parts.join('，')}，均以参考图为准，不得改变`
   },
   createFrameImageTask: (shotId: string, frameType: FrameType, prompt: string, targetRatio = '9:16', refs?: any[]) =>
     post<{ task_id: string }>(`/studio/image-tasks/shot/${shotId}/frame-image-tasks`, {

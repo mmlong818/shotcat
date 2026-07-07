@@ -7,14 +7,16 @@ import Frames from './pages/Frames'
 import Lobby from './pages/Lobby'
 import Overview from './pages/Overview'
 import Script from './pages/Script'
+import Gallery from './pages/Gallery'
 
 const STAGES = [
   { key: 'script', label: '剧本', to: '/script' },
   { key: 'cast', label: '设定', to: '/cast' },
   { key: 'board', label: '分镜', to: '/board' },
   { key: 'frames', label: '画面', to: '/frames' },
+  { key: 'gallery', label: '总览', to: '/gallery' },
 ]
-const STAGE_PATHS = ['/script', '/cast', '/board', '/frames', '/settings']
+const STAGE_PATHS = ['/script', '/cast', '/board', '/frames', '/gallery', '/settings']
 
 function Icon({ name }: { name: string }) {
   const p: Record<string, JSX.Element> = {
@@ -24,6 +26,7 @@ function Icon({ name }: { name: string }) {
     cast: <g><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></g>,
     board: <g><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M9 4v16" /></g>,
     frames: <g><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 9h4v10M17 5v14h4M7 5v4" /></g>,
+    gallery: <g><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.6" /><path d="M3 16l5-4 4 3 4-5 5 6" /></g>,
     settings: <g><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /></g>,
   }
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">{p[name]}</svg>
@@ -37,6 +40,11 @@ const ETYPE_ZH: Record<string, string> = { character: '角色', scene: '场景',
 
 export default function App() {
   const [project, setProject] = useState<Project | null>(null)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('duanju.theme') as 'dark' | 'light') || 'dark')
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('duanju.theme', theme)
+  }, [theme])
   const [ready, setReady] = useState<{ done: number; total: number } | null>(null) // 画面就绪进度
   const [searchOpen, setSearchOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -44,6 +52,7 @@ export default function App() {
   const navigate = useNavigate()
   const loc = useLocation()
   const inStage = STAGE_PATHS.some((p) => loc.pathname.startsWith(p)) // 阶段页才显示左轨；作品库/项目页独立
+  const onLobby = loc.pathname === '/' || loc.pathname.startsWith('/projects') // 首页：不显示任何项目上下文
 
   // 启动：载入项目列表，恢复上次选中的项目
   useEffect(() => {
@@ -63,16 +72,23 @@ export default function App() {
     navigate('/overview')
   }
 
-  // 真实进度：画面就绪镜头 ÷ 总镜头（切页时刷新）
+  // 真实进度：已出关键帧的镜头 ÷ 总镜头（后端 status 的"就绪"另有语义、从不翻转，不可用）
   useEffect(() => {
     if (!project) { setReady(null); return }
     let stale = false
     ;(async () => {
       try {
         const cs = await api.chapters(project.id)
-        const perCh = await Promise.all(cs.map((c) => api.shots(c.id).catch(() => [] as Shot[])))
+        const [perCh, idx] = await Promise.all([
+          Promise.all(cs.map((c) => api.shots(c.id).catch(() => [] as Shot[]))),
+          api.frameIndex().catch(() => ({} as Record<string, Partial<Record<'first' | 'key' | 'last', string>>>)),
+        ])
         const all = perCh.flat()
-        if (!stale) setReady({ done: all.filter((s) => s.status === 'ready').length, total: all.length })
+        const done = all.filter((s) => {
+          const t = idx[s.id]
+          return t && (t.key || t.first || t.last)
+        }).length
+        if (!stale) setReady({ done, total: all.length })
       } catch {}
     })()
     return () => { stale = true }
@@ -117,42 +133,27 @@ export default function App() {
           <span className="dot" />
           <span>猫叔的短剧工作台</span>
         </div>
-        <span className="crumb">
-          {project ? <>项目 · <b>{project.name}</b></> : <>请选择或新建项目</>}
-        </span>
-        {project && (
-          <label className="ratio-sel" title="画幅比例（项目级，影响生图/生视频）">
-            画幅
-            <select
-              value={project.default_video_ratio || '9:16'}
-              onChange={(e) => {
-                const r = e.target.value
-                const prev = project.default_video_ratio || '9:16'
-                setProject({ ...project, default_video_ratio: r })
-                api.updateProject(project.id, { default_video_ratio: r }).catch(() => {
-                  setProject((p) => (p ? { ...p, default_video_ratio: prev } : p))
-                  alert('画幅保存失败，已恢复原值')
-                })
-              }}
-            >
-              {['9:16', '16:9', '1:1', '4:3', '3:4', '2:3', '3:2', '21:9'].map((r) => (
-                <option key={r} value={r}>{r}</option>
-              ))}
-            </select>
-          </label>
+        {!onLobby && (
+          <span className="crumb">
+            {project ? <>项目 · <b>{project.name}</b></> : <>请选择或新建项目</>}
+          </span>
         )}
-        {project && ready && ready.total > 0 && (
-          <div className="progress" title={`画面就绪 ${ready.done} / ${ready.total} 镜`}>
+        {!onLobby && project && ready && ready.total > 0 && (
+          <div className="progress" title={`已出画面 ${ready.done} / ${ready.total} 镜`}>
             <div className="track"><div className="fill" style={{ width: `${Math.round((ready.done / ready.total) * 100)}%` }} /></div>
             <span className="pct">{Math.round((ready.done / ready.total) * 100)}%</span>
           </div>
         )}
         <div className="spacer" />
-        <div className="search" style={{ cursor: 'pointer' }} onClick={() => project && setSearchOpen(true)}
-          title={project ? '搜索镜头、角色、资产' : '先选择项目'}>
-          <span>搜索镜头、角色、资产…</span><kbd>Ctrl K</kbd>
-        </div>
-        <div className="tb-icon" title="切换项目" onClick={() => navigate('/projects')} style={{ cursor: 'pointer' }}>⇄</div>
+        {!onLobby && (
+          <div className="search" style={{ cursor: 'pointer' }} onClick={() => project && setSearchOpen(true)}
+            title={project ? '搜索镜头、角色、资产' : '先选择项目'}>
+            <span>搜索镜头、角色、资产…</span><kbd>Ctrl K</kbd>
+          </div>
+        )}
+        <div className="tb-icon" title={theme === 'dark' ? '切换浅色模式' : '切换黑金模式'} style={{ cursor: 'pointer' }}
+          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>{theme === 'dark' ? '☀' : '☾'}</div>
+        {!onLobby && <div className="tb-icon" title="切换项目" onClick={() => navigate('/projects')} style={{ cursor: 'pointer' }}>⇄</div>}
         <div className="avatar">猫</div>
       </div>
 
@@ -178,11 +179,19 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<Lobby onOpen={openProject} />} />
-          <Route path="/overview" element={<Overview project={project} />} />
+          <Route path="/overview" element={<Overview project={project} onRatioChange={(r) => {
+            const prev = project?.default_video_ratio || '9:16'
+            setProject((p) => (p ? { ...p, default_video_ratio: r } : p))
+            if (project) api.updateProject(project.id, { default_video_ratio: r }).catch(() => {
+              setProject((p) => (p ? { ...p, default_video_ratio: prev } : p))
+              alert('画幅保存失败，已恢复原值')
+            })
+          }} />} />
           <Route path="/board" element={<Storyboard project={project} />} />
           <Route path="/script" element={<Script project={project} />} />
           <Route path="/cast" element={<Cast project={project} />} />
           <Route path="/frames" element={<Frames project={project} />} />
+          <Route path="/gallery" element={<Gallery project={project} />} />
           <Route path="/settings" element={<Placeholder title="设置" />} />
         </Routes>
       </div>
