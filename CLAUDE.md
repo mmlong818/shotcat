@@ -1,6 +1,6 @@
-# duanju-studio 工作区规范
+# shotcat（duanju-studio）工作区规范
 
-短剧一体化创作工具。目标见 `PLAN.md`。
+短剧一体化创作工具，plotcat 系列的生产层（plotcat 写故事，shotcat 拍故事）。目标见 `PLAN.md`。
 
 ## 三方定位（勿混淆）
 - `app/` = 平台 底座。**尽量不改源码**，优先加模块/加入口。改前端接口后按其 AGENTS.md 跑 `pnpm run openapi:update`。日后可拉上游更新，故保持低侵入。

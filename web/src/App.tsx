@@ -131,7 +131,8 @@ export default function App() {
       <div className="topbar">
         <div className="brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/projects')} title="返回作品库">
           <span className="dot" />
-          <span>猫叔的短剧工作台</span>
+          <span>shotcat</span>
+          <span className="brand-sub">短剧工作台</span>
         </div>
         {!onLobby && (
           <span className="crumb">
