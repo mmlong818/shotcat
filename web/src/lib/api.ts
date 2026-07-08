@@ -72,6 +72,13 @@ const cleanRefName = (name: string | undefined, fallback: string) =>
     .replace(/[-－_ ]?默认服装/g, '')
     .trim() || fallback
 
+const isGenericCrowdCharacter = (name: string | undefined) => {
+  const value = String(name || '').trim()
+  if (!value) return false
+  if (['学生们', '同学们', '前排学生们', '后排学生们', '路人', '路人们', '人群', '群众', '围观者', '其他学生', '其他同学'].includes(value)) return true
+  return /^(前排|后排|周围|旁边|附近)?(学生|同学|路人|群众|人群|观众|乘客|行人)们?$/.test(value)
+}
+
 export const api = {
   projects: () => get<Paged<Project>>('/studio/projects?page_size=100').then((d) => d.items),
   createProject: (body: { name: string; style: string; visual_style: string; default_video_ratio?: string; description?: string }) => {
@@ -175,6 +182,7 @@ export const api = {
     const order: Record<string, number> = { character: 0, prop: 1, scene: 2 }
     const refs = (await api.shotLinkedAssets(shotId).catch(() => []))
       .filter((x) => x.file_id && x.type !== 'costume')
+      .filter((x) => x.type !== 'character' || !isGenericCrowdCharacter(x.name))
     const detail = await api.shotDetail(shotId)
     let sceneName = ''
 

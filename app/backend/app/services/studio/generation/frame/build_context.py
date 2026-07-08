@@ -15,6 +15,28 @@ def _clean_reference_name(name: str | None, fallback: str) -> str:
     return value.strip(" -_－") or fallback
 
 
+def _is_generic_crowd_character(name: str | None) -> bool:
+    value = str(name or "").strip()
+    if not value:
+        return False
+    generic_names = {
+        "学生们",
+        "同学们",
+        "前排学生们",
+        "后排学生们",
+        "路人",
+        "路人们",
+        "人群",
+        "群众",
+        "围观者",
+        "其他学生",
+        "其他同学",
+    }
+    if value in generic_names:
+        return True
+    return bool(re.fullmatch(r"(前排|后排|周围|旁边|附近)?(学生|同学|路人|群众|人群|观众|乘客|行人)们?", value))
+
+
 def build_ordered_shot_frame_references(
     *,
     items: list[ShotLinkedAssetItem],
@@ -24,6 +46,8 @@ def build_ordered_shot_frame_references(
     seen_file_ids: set[str] = set()
     for item in items or []:
         file_id = (item.file_id or "").strip()
+        if str(item.type) == "character" and _is_generic_crowd_character(item.name):
+            continue
         if not file_id or file_id in seen_file_ids:
             continue
         seen_file_ids.add(file_id)
