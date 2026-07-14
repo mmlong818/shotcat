@@ -86,6 +86,28 @@ export class StudioProjectsService {
         });
     }
     /**
+     * 批量导出项目关键帧 ZIP
+     * 导出已有关键帧，ZIP 内按章节、镜头序号和镜头标题命名。
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static exportProjectKeyframesApiV1StudioProjectsProjectIdKeyframesExportGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/projects/{project_id}/keyframes/export',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * 获取项目
      * @returns ApiResponse_ProjectRead_ Successful Response
      * @throws ApiError

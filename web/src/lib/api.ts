@@ -158,6 +158,8 @@ export const api = {
     if (!r.ok) throw new Error(j?.message || `删除失败 ${r.status}`)
     return (j?.data ?? j) as EntityDeleteResult
   },
+  exportProjectKeyframes: (projectId: string) =>
+    fetch(`${BASE}/studio/projects/${encodeURIComponent(projectId)}/keyframes/export`),
 
   // —— 画面生成链 ——
   frameImages: (shotId: string) =>

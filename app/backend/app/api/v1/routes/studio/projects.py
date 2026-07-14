@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +31,7 @@ from app.schemas.studio.projects import (
     ProjectUpdate,
     StyleOption,
 )
+from app.services.studio.keyframe_export import iter_keyframe_archive, list_project_keyframe_export_items
 
 router = APIRouter()
 
@@ -98,6 +102,27 @@ async def list_projects(
     stmt = apply_order(stmt, model=Project, order=order, is_desc=is_desc, allow_fields=PROJECT_ORDER_FIELDS, default="created_at")
     items, total = await paginate(db, stmt=stmt, page=page, page_size=page_size)
     return paginated_response([ProjectRead.model_validate(x) for x in items], page=page, page_size=page_size, total=total)
+
+
+@router.get(
+    "/{project_id}/keyframes/export",
+    response_class=StreamingResponse,
+    summary="批量导出项目关键帧 ZIP",
+)
+async def export_project_keyframes(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """导出已有关键帧，ZIP 内按章节、镜头序号和镜头标题命名。"""
+    filename, items = await list_project_keyframe_export_items(db, project_id=project_id)
+    return StreamingResponse(
+        iter_keyframe_archive(items),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+            "X-Shotcat-Keyframe-Count": str(len(items)),
+        },
+    )
 
 
 @router.post(

@@ -34,6 +34,7 @@ export default function Frames({ project }: { project: Project | null }) {
   const [openCh, setOpenCh] = useState<Record<string, boolean>>({}) // 镜头列表按集折叠
   const [thumbs, setThumbs] = useState<Record<string, Partial<Record<FrameType, string>>>>({}) // 镜头缩略图索引
   const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   // 当前选中镜头 id 的实时引用：异步链回写前用它校验镜头未被切走
   const selRef = useRef<string | null>(null)
@@ -228,6 +229,33 @@ export default function Frames({ project }: { project: Project | null }) {
     }
   }
 
+  async function exportKeyframes() {
+    if (!project || exporting) return
+    setExporting(true)
+    try {
+      const response = await api.exportProjectKeyframes(project.id)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        throw new Error(payload?.message || `导出失败 ${response.status}`)
+      }
+      const contentDisposition = response.headers.get('Content-Disposition') || ''
+      const encodedName = /filename\*=UTF-8''([^;]+)/.exec(contentDisposition)?.[1]
+      const filename = encodedName ? decodeURIComponent(encodedName) : `${project.name || '项目'}_关键帧.zip`
+      const blobUrl = URL.createObjectURL(await response.blob())
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(blobUrl)
+    } catch (error: any) {
+      alert(error?.message || '导出关键帧失败')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (!project) return <div className="center">未找到项目 · 请先用 bridge 导入剧本</div>
   const anyBusy = Object.values(frames).some((f) => f.busy) || !!batch
 
@@ -237,7 +265,10 @@ export default function Frames({ project }: { project: Project | null }) {
       <div className="work frames-page">
         <div className="work-head">
           <h1>画面工作台</h1>
-          <div className="spacer" />
+        <div className="spacer" />
+          <button className="btn ghost" disabled={exporting || !project} onClick={exportKeyframes}>
+            {exporting ? '打包导出中…' : '批量导出关键帧'}
+          </button>
           <button className="btn ghost" disabled={anyBusy || !shots.length} onClick={generateBatchFrames}>
             {batch ? `批量投任务 ${batch.done}/${batch.total}` : '批量生成缺失画面'}
           </button>
