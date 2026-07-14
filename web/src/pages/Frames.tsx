@@ -38,6 +38,8 @@ export default function Frames({ project }: { project: Project | null }) {
   // 当前选中镜头 id 的实时引用：异步链回写前用它校验镜头未被切走
   const selRef = useRef<string | null>(null)
   useEffect(() => { selRef.current = sel?.id ?? null }, [sel])
+  // 用户手动改过的提示词不能再被异步参考图渲染结果覆盖。
+  const promptEditedRef = useRef<Partial<Record<FrameType, boolean>>>({})
   // 卸载时置位，正在轮询的任务据此停止
   // 挂载时重置：StrictMode(dev) 模拟卸载会把 ref 置 true 且跨挂载保留，不重置则轮询秒取消
   const cancelledRef = useRef(false)
@@ -96,6 +98,7 @@ export default function Frames({ project }: { project: Project | null }) {
     const shotId = sel.id
     setRenderedPrompts({})
     setPromptDrafts({})
+    promptEditedRef.current = {}
     loadFrames(shotId)
     api.shotDetail(shotId).then((d) => { if (selRef.current === shotId) setDetail(d) })
   }, [sel, loadFrames])
@@ -118,7 +121,13 @@ export default function Frames({ project }: { project: Project | null }) {
       }
       if (!cancelled && selRef.current === shotId) {
         setRenderedPrompts(next)
-        setPromptDrafts((drafts) => ({ ...next, ...drafts }))
+        setPromptDrafts((drafts) => {
+          const updated = { ...drafts }
+          for (const [frameType, prompt] of Object.entries(next) as [FrameType, string][]) {
+            if (!promptEditedRef.current[frameType]) updated[frameType] = prompt
+          }
+          return updated
+        })
       }
     })()
     return () => { cancelled = true }
@@ -223,14 +232,6 @@ export default function Frames({ project }: { project: Project | null }) {
   const anyBusy = Object.values(frames).some((f) => f.busy) || !!batch
 
   const readyCount = frames.key.fileId ? 1 : 0
-  const shotBasis = [
-    detail?.description,
-    ...(detail?.action_beats || []),
-    sel?.script_excerpt,
-  ].map((x) => String(x || '').trim()).filter(Boolean)
-  const shotBasisText = shotBasis[0] || '当前镜头缺少画面描述，请先重新拆分镜或在分镜页补充。'
-  const shotMetaText = [sel?.camera_shot, sel?.title].filter(Boolean).join(' · ') || '未选择镜头'
-  const sceneName = scenes.find((x) => x.id === detail?.scene_id)?.name
 
   return (
       <div className="work frames-page">
@@ -375,18 +376,9 @@ export default function Frames({ project }: { project: Project | null }) {
                 <div className="ph"><span className="k">画面提示词</span></div>
                 {(() => {
                   const map: [FrameType, string][] = [
-                    ['key', renderedPrompts.key || detail?.key_frame_prompt],
-                  ].filter(([, v]) => v && String(v).trim()) as [FrameType, string][]
+                    ['key', promptDrafts.key ?? renderedPrompts.key ?? detail?.key_frame_prompt ?? ''],
+                  ]
                   const labels: Partial<Record<FrameType, string>> = { key: '关键帧' }
-                  if (map.length === 0)
-                    return (
-                      <div className="box muted">
-                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6, color: 'var(--text-3)', fontSize: 12, lineHeight: 1.6 }}>
-                          <div><span className="em">【镜头】</span>{shotMetaText}{sceneName ? ` · ${sceneName}` : ''}</div>
-                          <div><span className="em">【画面依据】</span>{shotBasisText}</div>
-                        </div>
-                      </div>
-                    )
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {map.map(([ft, v]) => (
@@ -405,7 +397,11 @@ export default function Frames({ project }: { project: Project | null }) {
                           <textarea
                             className="prompt-edit"
                             value={promptDrafts[ft] ?? v}
-                            onChange={(e) => setPromptDrafts((m) => ({ ...m, [ft]: e.target.value }))}
+                            placeholder="输入关键帧画面提示词"
+                            onChange={(e) => {
+                              promptEditedRef.current[ft] = true
+                              setPromptDrafts((m) => ({ ...m, [ft]: e.target.value }))
+                            }}
                             onBlur={(e) => {
                               if (!sel) return
                               const value = e.target.value
