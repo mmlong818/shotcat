@@ -1,6 +1,6 @@
 [project]
 name = "jellyfish-backend"
-version = "0.1.0"
+version = "0.2.1"
 description = "Jellyfish AI 短剧工厂 - 后端 API"
 readme = "README.md"
 requires-python = ">=3.11"
