@@ -11,7 +11,7 @@ export default function CostumeAssetEditPage() {
   const backTo = decodeAssetEditReturnTo(searchParams.get('returnTo'), adapter.backTo)
 
   return (
-    <AssetEditPageBase<any, any>
+    <AssetEditPageBase
       assetId={costumeId}
       onNavigate={(to, replace) => navigate(to, replace ? { replace: true } : undefined)}
       {...adapter}

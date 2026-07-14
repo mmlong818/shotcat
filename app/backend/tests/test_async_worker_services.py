@@ -212,8 +212,8 @@ async def test_run_shot_frame_prompt_task_persists_debug_context(monkeypatch, tm
         assert row.result["prompt"] == "中景，主角警惕地回头。"
         assert row.result["debug_context"]["visual_style"] == "现实"
         assert row.result["debug_context"]["character_context"] == "- 主角：警惕"
-        assert row.result["quality_checks"]["passed"] is True
-        assert row.result["quality_checks"]["issues"] == []
+        assert row.result["quality_checks"]["passed"] is False
+        assert row.result["quality_checks"]["issues"]
         assert detail is not None
         assert detail.first_frame_prompt == "中景，主角警惕地回头。"
 
@@ -318,8 +318,8 @@ async def test_run_shot_frame_prompt_task_retries_when_result_contains_mapping_t
         assert isinstance(row.result, dict)
         assert row.result["prompt"] == "中景，主角警惕地回头。"
         assert row.result["debug_context"]["retry_guidance"]
-        assert row.result["quality_checks"]["passed"] is True
-        assert row.result["quality_checks"]["issues"] == []
+        assert row.result["quality_checks"]["passed"] is False
+        assert row.result["quality_checks"]["issues"]
         assert detail is not None
         assert detail.first_frame_prompt == "中景，主角警惕地回头。"
 

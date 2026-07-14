@@ -249,7 +249,9 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       readErrorMessage: '读取智能检测结果失败',
       failedFallbackMessage: '智能检测失败',
       onSucceeded: (resultValue) => {
-        const result = resultValue as Record<string, any>
+        const result = typeof resultValue === 'object' && resultValue !== null && !Array.isArray(resultValue)
+          ? resultValue as Record<string, unknown>
+          : {}
         const issues = Array.isArray(result.issues)
           ? result.issues.filter((it: unknown): it is string => typeof it === 'string' && it.trim().length > 0)
           : []

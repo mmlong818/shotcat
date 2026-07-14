@@ -1186,6 +1186,35 @@ export function ChapterShotEditPage() {
     void prefetchExistenceForNewAssets('costume', unionAssets.costume)
   }, [prefetchExistenceForNewAssets, unionAssets])
 
+  const pendingConfirmCountForEditor = preparationState?.pending_confirm_count
+    ?? ((shotAssetsOverview?.summary.pending_count ?? 0) + extractedDialogLines.length)
+
+  useEffect(() => {
+    if (!shotId) return
+    if (loading || !shot) return
+    const rememberedTab = editorTabMemoryRef.current[shotId]
+    if (rememberedTab) {
+      if (editorTabKey !== rememberedTab) setEditorTabKey(rememberedTab)
+      tabAutoInitShotIdRef.current = shotId
+      return
+    }
+    if (tabAutoInitShotIdRef.current === shotId) return
+    setEditorTabKey(pendingConfirmCountForEditor > 0 ? 'confirm' : 'basic')
+    tabAutoInitShotIdRef.current = shotId
+  }, [editorTabKey, loading, pendingConfirmCountForEditor, shot, shotId])
+
+  const handleEditorTabChange = useCallback(
+    (key: string) => {
+      const nextKey = key as 'basic' | 'confirm'
+      setEditorTabKey(nextKey)
+      if (shotId) {
+        editorTabMemoryRef.current[shotId] = nextKey
+        tabAutoInitShotIdRef.current = shotId
+      }
+    },
+    [shotId],
+  )
+
   if (!projectId || !chapterId || !shotId) {
     return <Navigate to="/projects" replace />
   }
@@ -1198,7 +1227,7 @@ export function ChapterShotEditPage() {
   const actionBeatsReady = preparationState?.action_beats_ready ?? (actionBeatsCount > 0)
   const linkedAssetCount = shotAssetsOverview?.summary.linked_count ?? 0
   const pendingAssetCount = shotAssetsOverview?.summary.pending_count ?? 0
-  const pendingConfirmCount = preparationState?.pending_confirm_count ?? (pendingAssetCount + extractedDialogLines.length)
+  const pendingConfirmCount = pendingConfirmCountForEditor
   const assetsReady = !!shotAssetsOverview && pendingAssetCount === 0
   const dialogsReady = extractedDialogLines.length === 0
   const statusReady = preparationState?.ready_for_generation ?? (shot?.status === 'ready')
@@ -1281,32 +1310,6 @@ export function ChapterShotEditPage() {
         : '请先完成信息提取确认',
     },
   ] as const
-
-  useEffect(() => {
-    if (!shotId) return
-    if (loading || !shot) return
-    const rememberedTab = editorTabMemoryRef.current[shotId]
-    if (rememberedTab) {
-      if (editorTabKey !== rememberedTab) setEditorTabKey(rememberedTab)
-      tabAutoInitShotIdRef.current = shotId
-      return
-    }
-    if (tabAutoInitShotIdRef.current === shotId) return
-    setEditorTabKey(pendingConfirmCount > 0 ? 'confirm' : 'basic')
-    tabAutoInitShotIdRef.current = shotId
-  }, [editorTabKey, loading, pendingConfirmCount, shot, shotId])
-
-  const handleEditorTabChange = useCallback(
-    (key: string) => {
-      const nextKey = key as 'basic' | 'confirm'
-      setEditorTabKey(nextKey)
-      if (shotId) {
-        editorTabMemoryRef.current[shotId] = nextKey
-        tabAutoInitShotIdRef.current = shotId
-      }
-    },
-    [shotId],
-  )
 
   const editorTabItems = [
     {

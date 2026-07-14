@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Empty, Input, Modal, Pagination, Space, Tag, message } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import { StudioEntitiesApi } from '../../../../services/studioEntities'
+import { StudioEntitiesApi, toStudioEntityRecord, type StudioEntityRecord } from '../../../../services/studioEntities'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { resolveAssetUrl } from '../utils'
 import { DisplayImageCard } from '../components/DisplayImageCard'
@@ -10,7 +10,7 @@ import { ActorEntityFormModal, type ActorEntityLike } from '../components/ActorE
 export function ActorsTab() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [actors, setActors] = useState<any[]>([])
+  const [actors, setActors] = useState<ActorEntityLike[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
@@ -38,7 +38,9 @@ export function ActorsTab() {
         order: 'updated_at',
         isDesc: true,
       })
-      const items = res.data?.items ?? []
+      const items = (res.data?.items ?? [])
+        .map(toStudioEntityRecord)
+        .filter((item): item is StudioEntityRecord => item !== null)
       setActors(items)
       setTotal(res.data?.pagination.total ?? 0)
     } catch {
@@ -208,7 +210,7 @@ export function ActorsTab() {
         linkShotId={fromShotCreateContext?.shotId}
         onCancel={handleModalCancel}
         onSuccess={async (detail) => {
-          const createdItem = detail?.created as { id?: string } | undefined
+          const createdItem = toStudioEntityRecord(detail?.created)
           if (createdItem && page === 1 && !search.trim()) {
             setActors((prev) => [createdItem, ...prev.filter((it) => it.id !== createdItem.id)])
             setTotal((prev) => prev + 1)

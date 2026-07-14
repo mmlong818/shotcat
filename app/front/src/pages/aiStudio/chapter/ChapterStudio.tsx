@@ -92,12 +92,15 @@ import type {
   ShotCharacterLinkRead,
   ProjectPropLinkRead,
   ShotFramePromptMappingRead,
+  ShotFrameImageTaskRequest,
+  ShotLinkedAssetItem,
   ShotRead,
   ShotVideoReadinessRead,
   ShotRuntimeSummaryRead,
   ProjectSceneLinkRead,
   ShotStatus,
   ShotVideoPromptPackRead,
+  VideoGenerationTaskRequest,
 } from '../../../services/generated'
 import { listTaskLinksNormalized } from '../../../services/filmTaskLinks'
 import { buildFileDownloadUrl, resolveAssetUrl } from '../assets/utils'
@@ -142,6 +145,37 @@ type VideoPromptDerived = {
   prompt: string
   images: string[]
   pack: ShotVideoPromptPackRead | null
+}
+
+type KeyframeTargetRatio = ShotFrameImageTaskRequest['target_ratio']
+type VideoTargetRatio = VideoGenerationTaskRequest['ratio']
+
+const KEYFRAME_TARGET_RATIOS = new Set<KeyframeTargetRatio>(['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', '3:2', '2:3'])
+const VIDEO_TARGET_RATIOS = new Set<VideoTargetRatio>(['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'])
+
+function resolveAllowedRatio<T extends string>(candidates: string[], allowed: Set<T>): T | null {
+  const candidate = candidates.find(Boolean)
+  return candidate && allowed.has(candidate as T) ? candidate as T : null
+}
+
+function extractFileIdFromAssetThumbnail(thumbnail?: string | null): string | null {
+  const value = (thumbnail || '').trim()
+  if (!value) return null
+  if (!value.includes('/') && !value.includes(':')) return value
+  try {
+    const url = new URL(value, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
+    const match = url.pathname.match(/\/api\/v1\/studio\/files\/([^/]+)\/download\/?$/)
+    return match?.[1] ? decodeURIComponent(match[1]) : null
+  } catch {
+    return null
+  }
+}
+
+function referenceItemsFromLinkedAssets(items: ShotLinkedAssetItem[]): ShotLinkedAssetItem[] {
+  return items.flatMap((item) => {
+    const fileId = item.file_id?.trim() || extractFileIdFromAssetThumbnail(item.thumbnail)
+    return fileId ? [{ ...item, file_id: fileId }] : []
+  })
 }
 
 function normalizeFrameExclusiveTags(tags: string[]): string[] {
@@ -293,7 +327,7 @@ function getResolutionProfileLabel(profile: KeyframeResolutionProfile): string {
 
 function resolveKeyframePixelSize(
   options: ImageGenerationOptionsRead | null,
-  ratio: string,
+  ratio: string | null | undefined,
   profile: KeyframeResolutionProfile,
 ): string {
   const normalizedRatio = String(ratio ?? '').trim()
@@ -574,11 +608,11 @@ const ChapterStudio: React.FC = () => {
   const showPreviewFrameSegmented = false
   const showChapterTimeline = false
   const resolveShotVideoRatio = useCallback(
-    (detail?: ShotDetailRead | null) => {
+    (detail?: ShotDetailRead | null): KeyframeTargetRatio | null => {
       const shotRatio = String(detail?.override_video_ratio ?? '').trim()
       const projectRatio = String(projectDefaultVideoRatio ?? '').trim()
       const fallbackRatio = String(capabilityDefaultVideoRatio ?? '').trim()
-      return shotRatio || projectRatio || fallbackRatio
+      return resolveAllowedRatio([shotRatio, projectRatio, fallbackRatio], KEYFRAME_TARGET_RATIOS)
     },
     [capabilityDefaultVideoRatio, projectDefaultVideoRatio],
   )
@@ -703,8 +737,8 @@ const ChapterStudio: React.FC = () => {
       const res = await StudioShotsService.updateShotApiV1StudioShotsShotIdPatch({
         shotId,
         requestBody: { title },
-      } as any)
-      if (res.data) patchShotInList(shotId, res.data as any)
+      })
+      if (res.data) patchShotInList(shotId, res.data)
       message.success('标题已保存')
     } catch {
       message.error('保存标题失败')
@@ -716,8 +750,8 @@ const ChapterStudio: React.FC = () => {
       const res = await StudioShotsService.updateShotApiV1StudioShotsShotIdPatch({
         shotId,
         requestBody: { script_excerpt },
-      } as any)
-      if (res.data) patchShotInList(shotId, res.data as any)
+      })
+      if (res.data) patchShotInList(shotId, res.data)
       message.success('备注已保存')
     } catch {
       message.error('保存备注失败')
@@ -873,7 +907,7 @@ const ChapterStudio: React.FC = () => {
         setShotCharacterLinks(shotCharacters)
         setShotCandidateItems(candidates as ShotExtractedCandidateRead[])
         setShotDialogueCandidateItems(dialogueCandidates as ShotExtractedDialogueCandidateRead[])
-        if (detail?.duration != null) {
+        if (detail?.duration !== null && detail?.duration !== undefined) {
           setShotDurations((prev) => ({ ...prev, [selectedShotId]: detail.duration ?? 0 }))
         }
       })
@@ -1126,8 +1160,8 @@ const ChapterStudio: React.FC = () => {
         const target = frames.find((x) => x.frame_type === 'key') ?? frames[0]
         if (!target) continue
 
-        const detailRes: any = await StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId: id })
-        const d = detailRes?.data as any
+        const detailRes = await StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId: id })
+        const d = detailRes.data
         const prompt =
           (target.frame_type === 'first'
             ? d?.first_frame_prompt
@@ -1141,45 +1175,19 @@ const ChapterStudio: React.FC = () => {
           page: 1,
           pageSize: 100,
         })
-        const items = (linked.data?.items ?? []) as any[]
-        const extractFileId = (thumbnail?: string | null): string | null => {
-          const v = (thumbnail || '').trim()
-          if (!v) return null
-          if (!v.includes('/') && !v.includes(':')) return v
-          try {
-            const url = new URL(v, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
-            const m = url.pathname.match(/\/api\/v1\/studio\/files\/([^/]+)\/download\/?$/)
-            if (m?.[1]) return decodeURIComponent(m[1])
-          } catch {
-            // ignore
-          }
-          return null
-        }
-        const imagesPayload = items
-          .map((x) => {
-            const fileId = typeof x?.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : extractFileId(x?.thumbnail)
-            return fileId
-              ? {
-                  type: x?.type as any,
-                  id: String(x?.id ?? ''),
-                  name: String(x?.name ?? x?.id ?? ''),
-                  file_id: fileId,
-                }
-              : null
-          })
-          .filter(Boolean)
+        const imagesPayload = referenceItemsFromLinkedAssets(linked.data?.items ?? [])
         const targetRatio = resolveShotVideoRatio(d)
         if (!targetRatio) continue
         await StudioImageTasksService.createShotFrameImageGenerationTaskApiV1StudioImageTasksShotShotIdFrameImageTasksPost({
           shotId: id,
           requestBody: {
-            frame_type: target.frame_type as any,
+            frame_type: target.frame_type,
             model_id: null,
             prompt,
             images: imagesPayload,
             target_ratio: targetRatio,
             resolution_profile: keyframeResolutionProfile,
-          } as any,
+          } satisfies ShotFrameImageTaskRequest,
         })
       }
     },
@@ -1318,33 +1326,7 @@ const ChapterStudio: React.FC = () => {
         page: 1,
         pageSize: 100,
       })
-      const items = (linked.data?.items ?? []) as any[]
-      const extractFileId = (thumbnail?: string | null): string | null => {
-        const v = (thumbnail || '').trim()
-        if (!v) return null
-        if (!v.includes('/') && !v.includes(':')) return v
-        try {
-          const url = new URL(v, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
-          const m = url.pathname.match(/\/api\/v1\/studio\/files\/([^/]+)\/download\/?$/)
-          if (m?.[1]) return decodeURIComponent(m[1])
-        } catch {
-          // ignore
-        }
-        return null
-      }
-      const imagesPayload = items
-        .map((x) => {
-          const fileId = typeof x?.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : extractFileId(x?.thumbnail)
-          return fileId
-            ? {
-                type: x?.type as any,
-                id: String(x?.id ?? ''),
-                name: String(x?.name ?? x?.id ?? ''),
-                file_id: fileId,
-              }
-            : null
-        })
-        .filter(Boolean)
+      const imagesPayload = referenceItemsFromLinkedAssets(linked.data?.items ?? [])
       const targetRatio = resolveShotVideoRatio(shotDetail)
       if (!targetRatio) {
         message.warning('请先设置视频比例')
@@ -1353,13 +1335,13 @@ const ChapterStudio: React.FC = () => {
       await StudioImageTasksService.createShotFrameImageGenerationTaskApiV1StudioImageTasksShotShotIdFrameImageTasksPost({
         shotId: selectedShotId,
         requestBody: {
-          frame_type: target.frame_type as any,
+          frame_type: target.frame_type,
           model_id: null,
           prompt,
           images: imagesPayload,
           target_ratio: targetRatio,
           resolution_profile: keyframeResolutionProfile,
-        } as any,
+        } satisfies ShotFrameImageTaskRequest,
       })
       message.success('已创建生成任务')
     } catch {
@@ -1465,7 +1447,7 @@ const ChapterStudio: React.FC = () => {
       if (r.data) {
         setShotDetail(r.data)
         lastSavedDetailRef.current = r.data
-        if (r.data.duration != null) {
+        if (r.data.duration !== null && r.data.duration !== undefined) {
           setShotDurations((m) => ({ ...m, [selectedShotId]: r.data?.duration ?? 0 }))
         }
       }
@@ -1518,7 +1500,7 @@ const ChapterStudio: React.FC = () => {
           if (r.data) {
             setShotDetail(r.data)
             lastSavedDetailRef.current = r.data
-            if (r.data.duration != null) {
+            if (r.data.duration !== null && r.data.duration !== undefined) {
               setShotDurations((m) => ({ ...m, [selectedShotId]: r.data?.duration ?? 0 }))
             }
           }
@@ -2988,9 +2970,7 @@ function Inspector(props: {
   const [projectRoleOptions, setProjectRoleOptions] = useState<
     Array<{ value: string; label: React.ReactNode; searchLabel: string; disabled?: boolean }>
   >([])
-  const [shotLinkedAssets, setShotLinkedAssets] = useState<
-    Array<{ type: string; id: string; name?: string; thumbnail?: string; image_id?: number | null }>
-  >([])
+  const [shotLinkedAssets, setShotLinkedAssets] = useState<ShotLinkedAssetItem[]>([])
   const [shotAssetsOverview, setShotAssetsOverview] = useState<ShotAssetsOverviewRead | null>(null)
   const shotAssetsOverviewRequestSeqRef = useRef(0)
   const [shotRenderPromptLoading, setShotRenderPromptLoading] = useState(false)
@@ -3035,11 +3015,11 @@ function Inspector(props: {
   const [videoPromptPreviewLoading, setVideoPromptPreviewLoading] = useState(false)
   const [videoPromptPreviewSubmitting, setVideoPromptPreviewSubmitting] = useState(false)
   const [videoPromptContextCollapsed, setVideoPromptContextCollapsed] = useState(true)
-  const resolveVideoRatioForRequest = useCallback(() => {
+  const resolveVideoRatioForRequest = useCallback((): VideoTargetRatio | null => {
     const shotRatio = String(shotDetail?.override_video_ratio ?? '').trim()
     const projectRatio = String(projectDefaultVideoRatio ?? '').trim()
     const fallbackRatio = String(capabilityDefaultVideoRatio ?? '').trim()
-    return shotRatio || projectRatio || fallbackRatio
+    return resolveAllowedRatio([shotRatio, projectRatio, fallbackRatio], VIDEO_TARGET_RATIOS)
   }, [capabilityDefaultVideoRatio, projectDefaultVideoRatio, shotDetail?.override_video_ratio])
   const resolvedKeyframeRatio = resolveVideoRatioForRequest()
   const resolvedKeyframePixelSize = resolveKeyframePixelSize(
@@ -3417,18 +3397,7 @@ function Inspector(props: {
           pageSize: 100,
         })
         if (canceled) return
-        const items = (res.data?.items ?? []) as any[]
-        setShotLinkedAssets(
-          items
-            .filter((x) => x && typeof x.type === 'string' && typeof x.id === 'string')
-            .map((x) => ({
-              type: String(x.type),
-              id: String(x.id),
-              name: typeof x.name === 'string' ? x.name : undefined,
-              image_id: typeof x.image_id === 'number' ? x.image_id : x.image_id === null ? null : undefined,
-              thumbnail: typeof x.thumbnail === 'string' && x.thumbnail.trim() ? x.thumbnail.trim() : undefined,
-            })),
-        )
+        setShotLinkedAssets(res.data?.items ?? [])
       } catch {
         if (!canceled) setShotLinkedAssets([])
       }

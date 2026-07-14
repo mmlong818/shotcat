@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import gcd
 
 from app.core.contracts.provider import ProviderKey
 from app.core.contracts.video_generation import VideoGenerationInput, VideoRatio
@@ -75,6 +76,28 @@ def resolve_video_capability(*, provider: ProviderKey, model: str | None) -> Vid
 
 def resolve_effective_ratio(input_: VideoGenerationInput) -> str | None:
     return input_.ratio
+
+
+def infer_ratio_from_size(value: str | None) -> str | None:
+    """Return a supported aspect ratio from a ratio or pixel size string."""
+    if not value:
+        return None
+    candidate = value.strip()
+    if candidate in ALLOWED_RATIOS:
+        return candidate
+    width_text, separator, height_text = candidate.lower().partition("x")
+    if not separator:
+        return None
+    try:
+        width = int(width_text.strip())
+        height = int(height_text.strip())
+    except ValueError:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    divisor = gcd(width, height)
+    ratio = f"{width // divisor}:{height // divisor}"
+    return ratio if ratio in ALLOWED_RATIOS else None
 
 
 def resolve_default_ratio(*, provider: ProviderKey, model: str | None) -> str | None:

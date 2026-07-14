@@ -174,14 +174,10 @@ def test_render_shot_frame_prompt_returns_success_envelope_when_prompt_given(cli
         {"token": "图1", "type": "character", "id": "char-1", "name": "陆远", "file_id": "file-1"},
         {"token": "图2", "type": "scene", "id": "scene-1", "name": "温室", "file_id": "file-2"},
     ]
-    assert "高优先级导演指令：必须：锁定主角视线方向" in body["data"]["rendered_prompt"]
-    assert "当前帧职责：首帧只表现惊响出现后的最初僵直反应，人物尚未完成捂耳和下蹲动作" in body["data"]["rendered_prompt"]
-    assert "连续性要求：当前镜头应承接上一镜头的动作与情绪，不要像全新场面重新开局" in body["data"]["rendered_prompt"]
-    assert "构图锚点：以温室门框和人物站位作为空间锚点，保持环境与人物同时可读" not in body["data"]["rendered_prompt"]
-    assert "朝向与视线：保持陆远与环境入口的视线方向稳定，避免无故翻转朝向" not in body["data"]["rendered_prompt"]
-    assert "图1: 陆远" in body["data"]["rendered_prompt"]
-    assert "图2: 温室" in body["data"]["rendered_prompt"]
-    assert "生成一个紧张的首帧画面" in body["data"]["rendered_prompt"]
+    rendered_prompt = body["data"]["rendered_prompt"]
+    assert rendered_prompt.startswith(body["data"]["base_prompt"])
+    assert all(mapping["name"] in rendered_prompt for mapping in body["data"]["mappings"])
+    assert all(item not in rendered_prompt for item in body["data"]["selected_guidance"])
 
 
 def test_render_shot_frame_prompt_requires_prompt(client: TestClient) -> None:
@@ -224,13 +220,10 @@ def test_create_shot_frame_image_task_renders_prompt_before_submit(client: TestC
         }
 
     async def _fake_create_image_task_and_link(*_args, **kwargs):
-        assert kwargs["prompt"].startswith("## 图片内容说明")
-        assert "高优先级导演指令：必须：锁定主角视线方向" in kwargs["prompt"]
-        assert "当前帧职责：首帧只表现惊响出现后的最初僵直反应，人物尚未完成捂耳和下蹲动作" in kwargs["prompt"]
-        assert "连续性要求：当前镜头应承接上一镜头的动作与情绪，不要像全新场面重新开局" in kwargs["prompt"]
-        assert "构图锚点：以温室门框和人物站位作为空间锚点，保持环境与人物同时可读" not in kwargs["prompt"]
-        assert "朝向与视线：保持陆远与环境入口的视线方向稳定，避免无故翻转朝向" not in kwargs["prompt"]
-        assert "图1: 陆远" in kwargs["prompt"]
+        assert kwargs["prompt"].startswith("陆远站在温室里")
+        assert not kwargs["prompt"].startswith("##")
+        assert kwargs["render_context"]["mappings"][0]["name"] in kwargs["prompt"]
+        assert all(item not in kwargs["prompt"] for item in kwargs["render_context"]["selected_guidance"])
         assert kwargs["images"] == [{"image_url": "data:image/png;base64,abc"}]
         assert kwargs["target_ratio"] == "9:16"
         assert kwargs["resolution_profile"] == "standard"

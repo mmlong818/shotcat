@@ -12,6 +12,7 @@ export type ActorEntityLike = {
   view_count?: number | null
   visual_style?: string
   style?: string
+  thumbnail?: string
 }
 
 function normalizeTags(input: string): string[] {

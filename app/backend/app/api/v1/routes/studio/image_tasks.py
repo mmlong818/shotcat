@@ -728,9 +728,9 @@ async def _run_frame_image_batch(
         _frame_batch_update(batch_id, current=label)
         _frame_batch_item_update(batch_id, index, status="running", error="")
         try:
-            async def register_current_task(task_id: str) -> None:
+            async def register_current_task(task_id: str, *, item_index: int = index) -> None:
                 _frame_batch_update(batch_id, current_task_id=task_id)
-                _frame_batch_item_update(batch_id, index, task_id=task_id)
+                _frame_batch_item_update(batch_id, item_index, task_id=task_id)
                 if _batch_cancel_requested(_FRAME_IMAGE_BATCHES, batch_id):
                     await _cancel_generation_task(task_id)
 
@@ -962,8 +962,6 @@ async def create_actor_image_generation_task(
 ) -> ApiResponse[TaskCreated]:
     """为指定演员创建图片生成任务，并通过 `GenerationTaskLink` 关联。"""
     prompt = (body.prompt or "").strip()
-    if asset_type == "scene":
-        prompt = _scene_empty_prompt(prompt)
     if not prompt:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -11,7 +11,7 @@ export default function SceneAssetEditPage() {
   const backTo = decodeAssetEditReturnTo(searchParams.get('returnTo'), adapter.backTo)
 
   return (
-    <AssetEditPageBase<any, any>
+    <AssetEditPageBase
       assetId={sceneId}
       onNavigate={(to, replace) => navigate(to, replace ? { replace: true } : undefined)}
       {...adapter}

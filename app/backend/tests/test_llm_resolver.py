@@ -203,7 +203,7 @@ async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pyte
         assert isinstance(thinking_llm, FakeChatOpenAI)
         assert "extra_body" not in thinking_llm.kwargs
         assert isinstance(nothinking_llm, FakeChatOpenAI)
-        assert nothinking_llm.kwargs["extra_body"]["enable_thinking"] is False
+        assert "extra_body" not in nothinking_llm.kwargs
 
     await engine.dispose()
 

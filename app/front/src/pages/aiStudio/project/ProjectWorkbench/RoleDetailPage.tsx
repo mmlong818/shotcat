@@ -12,7 +12,7 @@ export default function RoleDetailPage() {
   }
 
   return (
-    <AssetEditPageBase<any, any>
+    <AssetEditPageBase
       assetId={characterId}
       {...adapter}
       backTo={projectId ? `/projects/${projectId}?tab=roles` : adapter.backTo}

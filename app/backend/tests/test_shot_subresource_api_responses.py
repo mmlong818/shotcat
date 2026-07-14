@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
+from app.api.v1.routes.studio import shots as shots_route
 from app.dependencies import get_db
 from app.main import app
 from app.models.studio import (
@@ -292,7 +293,7 @@ def test_update_shot_dialog_line_not_found_returns_api_response(client: TestClie
     assert response.json() == {"code": 404, "message": "ShotDialogLine not found", "data": None, "meta": None}
 
 
-def test_delete_shot_dialog_line_returns_empty_envelope(client: TestClient) -> None:
+def test_delete_shot_dialog_line_returns_empty_envelope(client: TestClient, monkeypatch) -> None:
     db = _FakeShotSubresourceDB()
     _seed_project_and_shot(db)
     _seed_shot_detail(db)
@@ -310,6 +311,11 @@ def test_delete_shot_dialog_line_returns_empty_envelope(client: TestClient) -> N
     line.created_at = datetime.now(UTC)
     line.updated_at = line.created_at
     db.dialog_lines[line.id] = line
+
+    async def _fake_delete_shot_dialog_line(fake_db, *, line_id: int) -> None:  # noqa: ANN001
+        fake_db.dialog_lines.pop(line_id, None)
+
+    monkeypatch.setattr(shots_route, "delete_shot_dialog_line_service", _fake_delete_shot_dialog_line)
     app.dependency_overrides[get_db] = _override_db(db)
     try:
         response = client.delete("/api/v1/studio/shot-dialog-lines/1")

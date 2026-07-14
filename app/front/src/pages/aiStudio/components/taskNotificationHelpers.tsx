@@ -21,7 +21,7 @@ type RelationTaskNotificationOptions = {
 }
 
 function formatElapsedMs(elapsedMs?: number | null): string | null {
-  if (elapsedMs == null || elapsedMs < 0) return null
+  if (elapsedMs === null || elapsedMs === undefined || elapsedMs < 0) return null
   const totalSeconds = Math.floor(elapsedMs / 1000)
   if (totalSeconds < 60) return `${totalSeconds} 秒`
   const minutes = Math.floor(totalSeconds / 60)

@@ -256,10 +256,10 @@ async def test_build_run_args_aggregates_dialog_and_project_style() -> None:
         assert run_args["input"]["shot_description"] == "狭长走廊里，主角谨慎前行并回头确认身后动静。"
         assert "主角：克制、警惕，带着压迫感" in run_args["input"]["character_context"]
         assert "演员形象：演员甲（短发、冷峻）" in run_args["input"]["character_context"]
-        assert "默认服装：黑色风衣（修身长款、利落）" in run_args["input"]["character_context"]
+        assert "默认服装" not in run_args["input"]["character_context"]
         assert run_args["input"]["scene_context"] == "- 废弃走廊：昏暗、潮湿、狭长"
         assert run_args["input"]["prop_context"] == "- 手电筒：金属外壳，冷白光束"
-        assert run_args["input"]["costume_context"] == "- 黑色风衣：修身长款、利落"
+        assert "costume_context" not in run_args["input"]
         assert "优先以角色 主角 作为画面主体" in run_args["input"]["subject_priority"]
         assert "优先建立场景 废弃走廊 的环境信息" in run_args["input"]["subject_priority"]
         assert "道具 手电筒 仅在进入主动作或构图焦点时重点写入" in run_args["input"]["subject_priority"]
@@ -269,22 +269,22 @@ async def test_build_run_args_aggregates_dialog_and_project_style() -> None:
         assert run_args["input"]["next_shot_title"] == "镜头二"
         assert "角色停下脚步" in run_args["input"]["next_shot_script_excerpt"]
         assert "画面状态：主角停住动作" in run_args["input"]["next_shot_start_goal"]
-        assert "承接上一镜头的动作与情绪" in run_args["input"]["continuity_guidance"]
-        assert "为下一镜头预留动作或情绪落点" in run_args["input"]["continuity_guidance"]
-        assert "保持人物与环境同时可读" in run_args["input"]["composition_anchor"]
+        assert "仅参考上一镜头的可见空间方向、左右轴线、主体朝向和场景材质，不写动作承接" in run_args["input"]["continuity_guidance"]
+        assert "仅参考下一镜头的可见空间方向和视觉重心，不写未来动作、变化或衔接结果" in run_args["input"]["continuity_guidance"]
+        assert "可视范围应同时包含主体全貌或半身与周围关键环境，交代人物和空间关系" in run_args["input"]["composition_anchor"]
         assert "以场景 废弃走廊 作为空间锚点" in run_args["input"]["composition_anchor"]
-        assert "锁定角色 主角 的朝向和视线" in run_args["input"]["composition_anchor"]
+        assert "优先锁定角色 主角 在画面内的朝向、视线和左右位置" in run_args["input"]["composition_anchor"]
         assert "优先保持人物视线水平和对视方向稳定" in run_args["input"]["screen_direction_guidance"]
         assert "存在对白时，优先保证说话者与受话者的视线关系连续" in run_args["input"]["screen_direction_guidance"]
         assert "角色 主角 的朝向与视线落点应在相邻镜头中保持延续" in run_args["input"]["screen_direction_guidance"]
-        assert "首帧应优先建立空间、主体初始站位和第一眼视觉印象" in run_args["input"]["frame_specific_guidance"]
-        assert "首帧只表现事件触发瞬间或最初反应的起始状态" in run_args["input"]["frame_specific_guidance"]
-        assert "若剧本存在连续反应链，优先写成动作刚开始、尚未完成或被打断的状态" in run_args["input"]["frame_specific_guidance"]
-        assert "首帧要承接上一镜头结束状态" in run_args["input"]["frame_specific_guidance"]
-        assert "必须：若剧本存在连续反应链，优先写成动作刚开始、尚未完成或被打断的状态，例如手刚松脱、身体骤然僵住、人物尚未完全蹲下" in run_args["input"]["director_command_summary"]
+        assert "首帧应优先建立静态空间、主体初始站位、镜头朝向和第一眼可见范围" in run_args["input"]["frame_specific_guidance"]
+        assert "首帧只写当前图片内可见的主体状态和环境，不写后续动作、变化过程或结果" in run_args["input"]["frame_specific_guidance"]
+        assert "若剧本存在连续反应链，只截取可见的静态起始姿态，不描述动作链本身" in run_args["input"]["frame_specific_guidance"]
+        assert "首帧可参考上一镜头的可见空间轴线和主体朝向，但不得写上一镜头动作" in run_args["input"]["frame_specific_guidance"]
+        assert "必须：若剧本存在连续反应链，只截取可见的静态起始姿态，不描述动作链本身" in run_args["input"]["director_command_summary"]
         assert "必须：与上一镜头同场景时，不要无故翻转人物面向和左右轴线" in run_args["input"]["director_command_summary"]
-        assert "必须：下一镜头与当前镜头处于同一场景，尽量保持视觉重心与空间关系可连续延展" in run_args["input"]["director_command_summary"]
-        assert "必须：以场景 废弃走廊 作为空间锚点，保证主体与环境关系清晰" in run_args["input"]["director_command_summary"]
+        assert "必须：仅参考下一镜头的可见空间方向和视觉重心，不写未来动作、变化或衔接结果" in run_args["input"]["director_command_summary"]
+        assert "必须：以场景 废弃走廊 作为空间锚点" in run_args["input"]["director_command_summary"]
     await engine.dispose()
 
 
@@ -297,11 +297,11 @@ async def test_build_run_args_provides_different_guidance_for_key_and_last_frame
         key_args = await build_run_args(db, shot_id="s1", frame_type="key")
         last_args = await build_run_args(db, shot_id="s1", frame_type="last")
 
-        assert "关键帧应锁定镜头内最有戏剧张力或信息密度最高的瞬间" in key_args["input"]["frame_specific_guidance"]
-        assert "尾帧应强调动作收束、情绪余韵或视线停留点" in last_args["input"]["frame_specific_guidance"]
+        assert "关键帧应锁定镜头内最具代表性的单张静态画面" in key_args["input"]["frame_specific_guidance"]
+        assert "尾帧应写成单张静态图片中的稳定主体姿态" in last_args["input"]["frame_specific_guidance"]
         assert key_args["input"]["frame_specific_guidance"] != last_args["input"]["frame_specific_guidance"]
-        assert "必须：关键帧应锁定镜头内最有戏剧张力或信息密度最高的瞬间，不要平均描述整个过程" in key_args["input"]["director_command_summary"]
-        assert "必须：尾帧应强调动作收束、情绪余韵或视线停留点，不要重新铺开新的动作起点" in last_args["input"]["director_command_summary"]
+        assert "必须：关键帧应锁定镜头内最具代表性的单张静态画面，不要平均描述整个过程" in key_args["input"]["director_command_summary"]
+        assert "必须：尾帧应写成单张静态图片中的稳定主体姿态、视线停留点和可见环境" in last_args["input"]["director_command_summary"]
         assert "必须：与上一镜头同场景时，不要无故翻转人物面向和左右轴线" in last_args["input"]["director_command_summary"]
     await engine.dispose()
 
@@ -339,8 +339,8 @@ async def test_build_run_args_strengthens_first_frame_for_sequential_reaction_ch
         run_args = await build_run_args(db, shot_id="fear-s1", frame_type="first")
 
         assert "当前镜头存在明显连续反应链" in run_args["input"]["frame_specific_guidance"]
-        assert "禁止直接落到捂耳、蹲下、倒地或转身完成态" in run_args["input"]["frame_specific_guidance"]
-        assert "当前帧优先围绕动作拍点“听到剪刀咬合声，陆远骤然僵住”组织画面（触发阶段）" in run_args["input"]["frame_specific_guidance"]
-        assert "必须：若剧本存在连续反应链，优先写成动作刚开始、尚未完成或被打断的状态，例如手刚松脱、身体骤然僵住、人物尚未完全蹲下" in run_args["input"]["director_command_summary"]
-        assert "当前镜头存在明显连续反应链，首帧必须截取触发后最早的可见瞬间，禁止直接落到捂耳、蹲下、倒地或转身完成态" in run_args["input"]["director_command_summary"]
+        assert "首帧只保留画面内最早可见的姿态和空间关系，不写过程" in run_args["input"]["frame_specific_guidance"]
+        assert "当前帧只把动作拍点“听到剪刀咬合声，陆远骤然僵住”转化为当前图片内可见的静态姿态" in run_args["input"]["frame_specific_guidance"]
+        assert "必须：若剧本存在连续反应链，只截取可见的静态起始姿态，不描述动作链本身" in run_args["input"]["director_command_summary"]
+        assert "当前镜头存在明显连续反应链，首帧只保留画面内最早可见的姿态和空间关系，不写过程" in run_args["input"]["director_command_summary"]
     await engine.dispose()

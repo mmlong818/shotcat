@@ -293,7 +293,7 @@ const ProjectLobby: React.FC = () => {
     const list = Array.isArray(projects) ? projects : []
     const keyword = search.trim().toLowerCase()
 
-    let next = list.filter((p) => {
+    const next = list.filter((p) => {
       if (keyword) {
         const inText =
           p.name.toLowerCase().includes(keyword) ||

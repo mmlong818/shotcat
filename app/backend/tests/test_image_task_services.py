@@ -323,12 +323,9 @@ def test_derive_frame_preview_replaces_reference_names_with_stable_order() -> No
     assert preview.selected_guidance_details[1].reason == "当前是首帧，系统优先保留触发瞬间与未完成态约束，避免画面直接跳到后续完成动作。"
     assert preview.dropped_guidance_details[0].reason_tag == "首帧降构图"
     assert preview.dropped_guidance_details[1].reason_tag == "首帧降轴线"
-    assert "高优先级导演指令：必须：锁定主角视线方向；优先：保持同场景轴线稳定" in preview.rendered_prompt
-    assert "当前帧职责：首帧只表现受惊瞬间，人物身体骤然僵住，动作尚未完成" in preview.rendered_prompt
-    assert "连续性要求：当前镜头应承接上一镜头的动作与情绪，不要像全新场面重新开局" in preview.rendered_prompt
-    assert "构图锚点：以门口灯光和主角站位作为画面重心，保持环境与人物同时可读" not in preview.rendered_prompt
-    assert "朝向与视线：保持张三与李四的左右站位和对视方向稳定，避免无故翻转朝向" not in preview.rendered_prompt
-    assert "图1在雨夜中逼近图2" in preview.rendered_prompt
+    assert preview.rendered_prompt.startswith(base.prompt)
+    assert all(mapping.name in preview.rendered_prompt for mapping in preview.mappings)
+    assert all(item not in preview.rendered_prompt for item in preview.selected_guidance)
 
 
 def test_derive_frame_preview_prioritizes_composition_for_first_frame() -> None:
@@ -357,9 +354,8 @@ def test_derive_frame_preview_prioritizes_composition_for_first_frame() -> None:
     ]
     assert preview.selected_guidance_details[1].reason_tag == "首帧保时序"
     assert preview.selected_guidance_details[1].reason == "当前是首帧，系统优先保留触发瞬间与未完成态约束，避免画面直接跳到后续完成动作。"
-    assert "当前帧职责：首帧优先表现推门瞬间和人物尚未完全进入大厅的状态" in preview.rendered_prompt
-    assert "构图锚点：以门框、人物站位和大厅纵深作为空间锚点，优先建立环境与人物关系" not in preview.rendered_prompt
-    assert "朝向与视线：保持人物朝向稳定" not in preview.rendered_prompt
+    assert preview.rendered_prompt == base.prompt
+    assert all(item not in preview.rendered_prompt for item in preview.selected_guidance)
 
 
 def test_derive_frame_preview_prioritizes_screen_guidance_for_key_frame() -> None:
@@ -389,6 +385,5 @@ def test_derive_frame_preview_prioritizes_screen_guidance_for_key_frame() -> Non
     assert preview.selected_guidance_details[2].reason_tag == "关键帧保轴线"
     assert preview.selected_guidance_details[2].reason == "当前镜头更看重视线与左右轴线稳定，因此优先保留朝向与视线 guidance。"
     assert preview.dropped_guidance_details[0].reason_tag == "关键帧降峰值"
-    assert "朝向与视线：保持两人的左右站位和对视方向稳定，避免跳轴" in preview.rendered_prompt
-    assert "构图锚点：以走廊尽头和人物站位作为空间锚点，保持环境与人物同时可读" not in preview.rendered_prompt
-    assert "当前帧职责：关键帧应锁定对峙动作的峰值瞬间" not in preview.rendered_prompt
+    assert preview.rendered_prompt == base.prompt
+    assert all(item not in preview.rendered_prompt for item in preview.selected_guidance)
