@@ -1,77 +1,132 @@
-<p align="center">
-  <img src="assets/logo.png" alt="shotcat logo" width="520">
-</p>
+# shotcat
 
-# shotcat 🎬
+短剧图像制作工作台。`plotcat` 负责剧本，`shotcat` 把剧本转化为可确认、可复用、可生成的角色、场景、道具、分镜与关键帧。
 
-> plotcat 写故事，**shotcat** 拍故事。—— plotcat 系列的短剧生产层（猫叔的短剧工作台）
+当前版本：**0.2.2**
 
-**剧本到来之后**的短剧生产工具。编剧不在范围内（那是「原点编剧系统 / plotcat」的活，做完我们接）。
-视觉方向：暗色专业创作台（近黑 + 琥珀金）。设计稿见 `design/`。
+## 当前能力
 
-本工具负责的链路：
-```
-剧本(原点产出) → 造型/场景/道具/服装设置 → 文字分镜 → 图像分镜 → 图生视频（最远到此）
-```
+shotcat 的主流程已经不是早期规划中的“待接入图像模型”状态。当前可用流程是：
 
-## 结构
-```
-shotcat/
-├── app/          平台 底座（生产平台：分镜/资产/关键帧/图生视频，React+FastAPI）
-├── bridge/       剧本接入桥（story-bible.json → 平台 项目+造型资产+文字分镜）
-├── knowledge/    story-bible.schema.v1.json = 与原点的交接契约（其余知识库为写作侧参考，本工具不用）
-├── _archive/     已作废的编剧模块（screenwriter，保留备查）
-└── PLAN.md       落地规划与进度
+```text
+项目与剧本
+  -> 剧本拆解与艺术指导统筹
+  -> 角色 / 场景 / 道具设定
+  -> 分镜提取、确认与修正
+  -> 单关键帧提示词确认、生成与导出
 ```
 
-## 与原点的关系
-- **原点**产出剧本 + 结构化设定（角色/场景等）。
-- 交接格式 = `knowledge/story-bible.schema.v1.json`（角色 char_001 / 场景 scene_001，与 平台 实体同构）。
-- 原点完成后，其输出映射到本 schema，经 `bridge` 一键进入生产。当前可用手写/样例 story-bible 先跑通生产侧。
+主要能力：
 
-## 现状
-生产链路前半段已通：`bridge` 能把剧本 → 项目+造型资产+文字分镜（Celery 异步切镜）。
-下一步：接入**图像模型**（造型图 + 图像分镜）与**视频模型**（图生视频）。详见 `PLAN.md`。
+- 从剧本拆解角色、场景、道具、章节和镜头，并保留可编辑的提取结果。
+- 用基准造型和派生状态管理角色、场景和道具，避免同一项目生成出彼此无关的参考图。
+- 仅在年龄、身份、妆造、空间结构或物件状态确有变化时创建派生资产；普通晨昏、天气和轻微状态变化由镜头提示词处理。
+- 在分镜准备页确认资产、对白、景别和镜头信息；准备完成后进入画面工作台。
+- 为每个镜头生成一张可编辑的关键帧提示词。提示词只描述可见静态画面，不混入推进、移动或视频动作指令。
+- 关键帧生成会按镜头关联的角色、场景和道具引用对应参考图，保持人物、空间和物件一致性。
+- 支持设定图和关键帧的批量生成、服务端任务队列、取消、刷新后恢复进度，以及按镜头命名批量导出关键帧。
 
-## 快速开始
+当前日常流程停在关键帧交付。视频生成能力保留在后端，但不需要配置或使用它才能完成图像工作流。
 
-前置：Docker Desktop ｜ Node.js 18+ 与 pnpm ｜ Python 3.10+ ｜ 一个 GLM API Key（[智谱开放平台](https://open.bigmodel.cn)）
+## 目录
 
-**① 启动平台底座**（后端 API + MySQL + Redis + Celery + 对象存储，全在 Docker 里）
+| 目录 | 用途 |
+| --- | --- |
+| `web/` | 面向日常制作的 shotcat 工作台，默认端口 `5273`。 |
+| `app/backend/` | FastAPI API、任务队列、资产/分镜/关键帧业务和模型调用。 |
+| `app/front/` | 平台原生 Studio 前端，主要用于开发和管理，默认端口 `7788`。 |
+| `bridge/` | 可选的剧本接入桥，将结构化剧本导入项目；支持 GLM 或 OpenAI 兼容聊天接口。 |
+| `app/site/` | 产品与开发文档站。 |
+
+## 本地启动（无 Docker）
+
+### 前置条件
+
+- Python 3.11+
+- Node.js 18+ 与 pnpm
+- 图像模型的可用 API 配置
+- 可选：Redis 与 Celery Worker。启用后，长任务可在独立 Worker 中执行并支持更可靠的取消；未启用时后端会回退到本地线程执行。
+
+### 1. 启动后端
+
 ```bash
-cd app/deploy/compose
-cp .env.example .env        # 本地体验用默认值即可，建议改掉两个 change-me 密码
-docker compose --env-file .env -f docker-compose.yml up -d
+cd app/backend
+cp .env.example .env
+uv sync --group dev
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
-平台前端 http://localhost:7788 ｜ 后端 API http://localhost:8000
 
-**② 配置 GLM Key**（切镜 / 视觉词典 / 设定抽取靠它）
+后端地址：<http://127.0.0.1:8000>
+接口文档：<http://127.0.0.1:8000/docs>
 
-写入 `bridge/.glm_key`（一行 key 即可），或设环境变量 `GLM_API_KEY`。
+如需把长任务交给独立 Worker 执行，另开一个终端：
 
-**③ 启动剧本接入桥**（纯 Python 标准库，无需 pip install）
 ```bash
-cd bridge
-python pipeline_server.py   # http://127.0.0.1:5280
+cd app/backend
+uv run celery -A app.core.celery_app.celery_app worker --loglevel=INFO
 ```
 
-**④ 启动 shotcat 工作台**
+### 2. 启动工作台
+
 ```bash
 cd web
 pnpm install
-pnpm dev                    # http://localhost:5273（dev 已代理 /api→8000、/pipeline→5280）
+pnpm dev
 ```
 
-日常使用只开浏览器访问 **http://localhost:5273** 即可；平台自带前端（7788）仅在需要底座原生功能时打开。
+访问：<http://127.0.0.1:5273>
 
-## 作者
+`web` 开发服务器会将 `/api` 代理到后端 `8000`。没有启动桥接服务时，不使用剧本桥接入口即可。
 
-本系统（shotcat / 短剧生产工作台）由云一工作室主理人 **猫叔** 独立开发。
-仓库地址：<https://github.com/mmlong818/shotcat>
-姊妹项目：[plotcat / 原点编剧系统](https://github.com/mmlong818/plotcat)（写故事的那一半）
+### 3. 启动剧本接入桥（可选）
+
+桥接用于从结构化剧本导入项目，不是画面生成的前置条件。
+
+```bash
+cd bridge
+python pipeline_server.py
+```
+
+访问：<http://127.0.0.1:5280>
+
+桥接优先读取 `GLM_API_KEY` 或 `bridge/.glm_key`；未配置时会读取 `OPENAI_API_KEY` 或 `bridge/.openai_key`。不要将真实 Key 提交到仓库。
+
+## 使用顺序
+
+1. 在作品库创建或打开项目，导入/填写章节剧本。
+2. 运行拆解，检查艺术指导建议、角色、场景和道具；只保留确有视觉差异的派生状态。
+3. 在设定页完善描述和参考图，确认基准资产后再生成派生资产。
+4. 在分镜编辑页确认提取候选和镜头信息，使镜头进入可生成状态。
+5. 在画面工作台检查每个镜头的关键帧提示词和参考图关系，逐张确认或批量提交生成。
+6. 在总览中筛选已采用关键帧并按镜头名称导出。
+
+## 开发与验证
+
+前端类型检查：
+
+```bash
+cd app/front
+pnpm run typecheck
+```
+
+后端测试：
+
+```bash
+cd app/backend
+uv run pytest -q
+```
+
+后端 API 变更后需要同步前端 OpenAPI 客户端：
+
+```bash
+cd app/front
+pnpm run openapi:update
+```
+
+更完整的当前架构和操作说明见 [app/site/content/docs](app/site/content/docs)。
 
 ## 许可证
 
-[PolyForm Noncommercial 1.0.0](LICENSE) —— 允许个人使用、学习、修改和非商业分发；**不允许任何商业用途**。
+[PolyForm Noncommercial 1.0.0](LICENSE)。允许个人使用、学习、修改和非商业分发；不允许商业用途。
 
-> Required Notice: Copyright © 2026 猫叔 (<https://github.com/mmlong818/shotcat>)
+Copyright © 2026 猫叔
