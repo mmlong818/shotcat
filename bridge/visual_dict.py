@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """第一阶段·视觉词典：读项目全剧本 → GLM 生成锁定描述 → 回填角色状态/场景/道具造型库。
-方法依据 knowledge/prompts/微短剧生成提示词.md 第一阶段。
 用法：python visual_dict.py <project_id> [--base http://localhost:8000] [--model glm-4.6]
 """
 from __future__ import annotations

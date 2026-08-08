@@ -85,7 +85,6 @@ Git 只同步代码和文档，不同步这些本地内容。迁移到另一台�
 | `app/backend/` | FastAPI API、SQLite 数据、任务队列、资产、分镜与图片生成。 |
 | `bridge/` | 剧本分析、设定抽取、视觉词典、AI 拆镜头和 Pipeline 服务。 |
 | `app/front/` | 旧 Studio 管理前端，仅用于维护与历史兼容。 |
-| `app/site/` | 产品与开发文档站。 |
 | `docs/assets/readme/` | README 使用的版本化产品截图。 |
 
 ## 本地启动
@@ -178,8 +177,6 @@ pytest bridge -q
 cd app/front
 pnpm run openapi:update
 ```
-
-更完整的架构说明见 [app/site/content/docs](app/site/content/docs)。
 
 ## 许可证
 

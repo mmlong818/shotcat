@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""剧本贯通桥：读一份故事圣经 JSON（遵循 knowledge/story-bible.schema.v1.json），
+"""剧本贯通桥：读取一份结构化故事圣经 JSON，
 把它灌进 Jellyfish 底座：建项目 → 建场景/道具/服装/角色实体 → 每集建章节并切分镜。
 
 只依赖标准库（urllib）。用法：

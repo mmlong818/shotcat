@@ -28,6 +28,27 @@ app/**/.env
 # 备份归档
 /_archive/
 
+# 内部规划、设计过程与历史资料（仅保留本机）
+/CLAUDE.md
+/PLAN.md
+/RESUME.md
+/design/
+/knowledge/
+/app/.cursor/
+/app/.github/
+/app/.githooks/
+/app/AGENTS.md
+/app/README.md
+/app/docs/
+/app/site/
+/app/front/GETTING_STARTED.md
+/app/front/PROJECT_SUMMARY.md
+/app/front/README.md
+/bridge/sample-story-bible.json
+/bridge/story-echo.json
+/bridge/verify2.py
+/bridge/verify_echo.py
+
 # 生成产物
 bridge/units-*.json
 bridge/shots-*.json
