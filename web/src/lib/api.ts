@@ -269,6 +269,35 @@ export const api = {
     fetch(`${BASE}/studio/entities/${type}/${id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
     }).then((r) => { if (!r.ok) throw new Error(`更新失败 ${r.status}`) }),
+  async uploadEntityDesign(type: string, id: string, projectId: string, name: string, file: File): Promise<string> {
+    if (!file.type.startsWith('image/')) throw new Error('请选择图片文件')
+    const body = new FormData()
+    body.append('file', file)
+    body.append('project_id', projectId)
+    body.append('usage_kind', 'entity_design')
+    body.append('source_ref', `${type}:${id}`)
+    const uploaded = await fetch(`${BASE}/studio/files/upload?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body,
+    })
+    const uploadedJson = await uploaded.json().catch(() => null)
+    if (!uploaded.ok) throw new Error(uploadedJson?.message || '设计稿上传失败')
+    const fileId = String(uploadedJson?.data?.id ?? uploadedJson?.id ?? '')
+    if (!fileId) throw new Error('设计稿上传后未返回文件编号')
+
+    const imageId = await api.ensureImageSlot(type, id)
+    const linked = await fetch(`${BASE}/studio/entities/${type}/${id}/images/${imageId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: fileId }),
+    })
+    const linkedJson = await linked.json().catch(() => null)
+    if (!linked.ok) {
+      await fetch(`${BASE}/studio/files/${fileId}`, { method: 'DELETE' }).catch(() => null)
+      throw new Error(linkedJson?.message || '设计稿已上传，但绑定造型失败')
+    }
+    return fileId
+  },
   deleteEntity: async (type: string, id: string) => {
     const r = await fetch(`${BASE}/studio/entities/${type}/${id}`, { method: 'DELETE' })
     const j = await r.json().catch(() => null)

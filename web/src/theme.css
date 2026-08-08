@@ -394,6 +394,11 @@ img.zoomable{cursor:zoom-in}
 .cast-card .cc-h .role{font-size:11px;color:var(--accent-2)}
 .cast-card .cc-h .id{margin-left:auto;font-size:10px;color:var(--text-3);font-family:ui-monospace,monospace}
 .cast-card .cc-desc{font-size:12px;color:var(--text-2);line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:56px}
+.cast-card .cc-image-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.cast-card .cc-image-actions .btn{width:100%}
+.cast-card .cc-upload{position:relative;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.cast-card .cc-upload.disabled{opacity:.5;cursor:not-allowed;pointer-events:none}
+.cast-card .cc-upload input{position:absolute;inline-size:1px;block-size:1px;opacity:0;pointer-events:none}
 
 /* ── 剧本页 ── */
 .sc-msg{background:var(--gold-soft);color:var(--gold-2);border-radius:8px;padding:9px 13px;font-size:12.5px;margin-bottom:14px}

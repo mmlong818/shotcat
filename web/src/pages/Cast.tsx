@@ -378,6 +378,27 @@ export default function Cast({ project }: { project: Project | null }) {
       setBusy(''); setStage('')
     }
   }
+
+  async function uploadDesign(e: Entity, file: File | undefined) {
+    if (!project || !file || busy || batch) return
+    if (thumbOf(e) && !confirmOverwrite({
+      step: `上传「${e.name}」认可设计稿`,
+      replaces: ['当前造型图', '后续新生成镜头所使用的设定参考图'],
+      consequence: '已经生成的镜头画面不会自动更新，如需一致请在画面页重新生成对应镜头。',
+    })) return
+    setBusy(e.id); setErr(''); setStage('上传设计稿中…')
+    try {
+      const fileId = await api.uploadEntityDesign(tab, e.id, project.id, e.name, file)
+      setFresh((current) => ({ ...current, [e.id]: fileId }))
+      await loadEntityImages(tab, e.id)
+      await loadAll()
+      setErr(`已采用「${e.name}」的上传设计稿；后续镜头会按该名称和图片作为参考。`)
+    } catch (error: any) {
+      setErr(`${e.name}：${error?.message || '设计稿上传失败'}`)
+    } finally {
+      setBusy(''); setStage('')
+    }
+  }
   async function genMissing() {
     if (!project || batch) return
     setErr('')
@@ -578,6 +599,8 @@ export default function Cast({ project }: { project: Project | null }) {
                   <input
                     className="n cc-name-input"
                     value={e.name}
+                    aria-label="设计名称"
+                    title="点击修改设计名称，后续任务会使用这个名称"
                     disabled={!!busy || !!batch}
                     onChange={(ev) => setEntityNameLocal(tab, e.id, ev.target.value)}
                     onBlur={(ev) => renameEntity(e, ev.target.value)}
@@ -613,9 +636,24 @@ export default function Cast({ project }: { project: Project | null }) {
                     </button>
                   </div>
                 </div>
-                <button className="btn primary" style={{ width: '100%' }} disabled={!!busy || !!batch || !canGenerate} onClick={() => gen(e)}>
-                  {busyThis ? (stage || '生成中…') : url ? '重新生成造型图' : '生成造型图'}
-                </button>
+                <div className="cc-image-actions">
+                  <label className={`btn ghost cc-upload${busy || batch ? ' disabled' : ''}`}>
+                    上传认可设计稿
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={!!busy || !!batch}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        event.target.value = ''
+                        void uploadDesign(e, file)
+                      }}
+                    />
+                  </label>
+                  <button className="btn primary" disabled={!!busy || !!batch || !canGenerate} onClick={() => gen(e)}>
+                    {busyThis ? (stage || '处理中…') : url ? '重新生成造型图' : '生成造型图'}
+                  </button>
+                </div>
               </div>
             </div>
           )
