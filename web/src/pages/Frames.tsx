@@ -141,7 +141,9 @@ export default function Frames({ project }: { project: Project | null }) {
   const autoStartedBatchRef = useRef('')
   const submittingBatchRef = useRef(false)
   const frameTasksRef = useRef<FrameTaskIndex>({})
+  const thumbsRef = useRef<Record<string, Partial<Record<FrameType, string>>>>({})
   useEffect(() => { cancelledRef.current = false; return () => { cancelledRef.current = true } }, [])
+  useEffect(() => { thumbsRef.current = thumbs }, [thumbs])
 
   /** 同步更新 state 与 ref，让镜头切换无需等待下一轮网络读取即可恢复状态。 */
   const updateFrameTasks = useCallback((updater: (current: FrameTaskIndex) => FrameTaskIndex) => {
@@ -267,8 +269,9 @@ export default function Frames({ project }: { project: Project | null }) {
   // 选中镜头 → 同时载入已有图片和后端持久化的最新生图任务。
   const loadFrames = useCallback(async (shotId: string) => {
     const knownTask = frameTasksRef.current[shotId]?.key
+    const knownFileId = thumbsRef.current[shotId]?.key ?? null
     const initial: Record<FrameType, FrameState> = {
-      first: emptyFrame(), key: emptyFrame(), last: emptyFrame(),
+      first: emptyFrame(), key: { ...emptyFrame(), fileId: knownFileId }, last: emptyFrame(),
     }
     if (knownTask && ACTIVE_TASK_STATUSES.has(knownTask.status)) {
       initial.key = { ...initial.key, busy: true, stage: taskStage(knownTask) }
@@ -282,7 +285,7 @@ export default function Frames({ project }: { project: Project | null }) {
       if (selRef.current !== shotId) return // 已切换镜头，丢弃过期响应
       if (taskIndex) mergeServerFrameTasks(taskIndex)
       const next: Record<FrameType, FrameState> = {
-        first: emptyFrame(), key: emptyFrame(), last: emptyFrame(),
+        first: emptyFrame(), key: { ...emptyFrame(), fileId: knownFileId }, last: emptyFrame(),
       }
       for (const image of imgs) {
         if (image.frame_type in next) next[image.frame_type] = { ...emptyFrame(), fileId: image.file_id }
