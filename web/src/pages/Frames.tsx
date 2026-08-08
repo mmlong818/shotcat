@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { api, fileUrl, type Chapter, type Entity, type FrameType, type Project, type Shot } from '../lib/api'
+import {
+  api,
+  fileUrl,
+  type AssetImageBatchStatus,
+  type Chapter,
+  type Entity,
+  type FrameTaskIndex,
+  type FrameType,
+  type Project,
+  type Shot,
+  type TaskListItem,
+} from '../lib/api'
 import Lightbox from '../Lightbox'
 
 const FRAMES: { key: FrameType; label: string }[] = [
@@ -9,6 +20,41 @@ const FRAMES: { key: FrameType; label: string }[] = [
 
 type FrameState = { fileId: string | null; busy: boolean; stage: string; error: string }
 const emptyFrame = (): FrameState => ({ fileId: null, busy: false, stage: '', error: '' })
+
+type FrameBatchView = { batchId: string; done: number; total: number }
+type StoredFrameBatch = { projectId: string; batchId: string }
+
+const FRAME_BATCH_STORAGE_KEY = 'shotcat.frames.active-batch'
+const ACTIVE_TASK_STATUSES = new Set(['pending', 'running', 'streaming'])
+
+const taskStage = (task: Pick<TaskListItem, 'status' | 'progress'>) =>
+  task.status === 'pending' ? '等待生成…' : `生成画面… ${task.progress || 0}%`
+
+const frameStatusLabel = (status: string | undefined, progress: number | undefined, hasImage: boolean) => {
+  if (status === 'queued') return '排队中'
+  if (status === 'pending') return '等待生成'
+  if (status === 'running' || status === 'streaming') return `生成中 ${progress || 0}%`
+  if (status === 'failed') return '生成失败'
+  if (status === 'cancelled') return '已停止'
+  if (status === 'succeeded' || hasImage) return '已生成'
+  return ''
+}
+
+const readStoredFrameBatch = (): StoredFrameBatch | null => {
+  try {
+    return JSON.parse(localStorage.getItem(FRAME_BATCH_STORAGE_KEY) || 'null') as StoredFrameBatch | null
+  } catch {
+    return null
+  }
+}
+
+const rememberFrameBatch = (value: StoredFrameBatch) =>
+  localStorage.setItem(FRAME_BATCH_STORAGE_KEY, JSON.stringify(value))
+
+const forgetFrameBatch = (batchId: string) => {
+  const stored = readStoredFrameBatch()
+  if (!stored || stored.batchId === batchId) localStorage.removeItem(FRAME_BATCH_STORAGE_KEY)
+}
 
 const stripReferenceLines = (text: string) =>
   String(text || '')
@@ -32,7 +78,9 @@ export default function Frames({ project }: { project: Project | null }) {
   const [promptDrafts, setPromptDrafts] = useState<Partial<Record<FrameType, string>>>({})
   const [openCh, setOpenCh] = useState<Record<string, boolean>>({}) // 镜头列表按集折叠
   const [thumbs, setThumbs] = useState<Record<string, Partial<Record<FrameType, string>>>>({}) // 镜头缩略图索引
-  const [batch, setBatch] = useState<{ done: number; total: number } | null>(null)
+  const [batch, setBatch] = useState<FrameBatchView | null>(null)
+  const [batchItemStatuses, setBatchItemStatuses] = useState<Record<string, string>>({})
+  const [frameTasks, setFrameTasks] = useState<FrameTaskIndex>({})
   const [exporting, setExporting] = useState(false)
 
   // 当前选中镜头 id 的实时引用：异步链回写前用它校验镜头未被切走
@@ -41,6 +89,9 @@ export default function Frames({ project }: { project: Project | null }) {
   // 卸载时置位，正在轮询的任务据此停止
   // 挂载时重置：StrictMode(dev) 模拟卸载会把 ref 置 true 且跨挂载保留，不重置则轮询秒取消
   const cancelledRef = useRef(false)
+  const ownedTaskIdsRef = useRef(new Set<string>())
+  const resumedTaskIdsRef = useRef(new Set<string>())
+  const watchedBatchIdsRef = useRef(new Set<string>())
   useEffect(() => { cancelledRef.current = false; return () => { cancelledRef.current = true } }, [])
 
   useEffect(() => {
@@ -48,6 +99,7 @@ export default function Frames({ project }: { project: Project | null }) {
     api.entities('character', project.id).then(setCast).catch(() => {})
     api.entities('scene', project.id).then(setScenes).catch(() => {})
     api.frameIndex().then(setThumbs).catch(() => {})
+    api.frameTaskIndex().then(setFrameTasks).catch(() => {})
     api.chapters(project.id).then((cs) => {
       setChapters(cs)
       if (!cs.length) return
@@ -76,20 +128,113 @@ export default function Frames({ project }: { project: Project | null }) {
     }).catch(() => {})
   }, [project?.id, params])
 
-  // 选中镜头 → 载入已有帧图
-  const loadFrames = useCallback((shotId: string) => {
-    setFrames({ first: emptyFrame(), key: emptyFrame(), last: emptyFrame() })
-    api.frameImages(shotId).then((imgs) => {
-      if (selRef.current !== shotId) return // 已切换镜头，丢弃过期响应
-      setFrames((prev) => {
-        const next = { ...prev }
-        for (const im of imgs) {
-          if (im.frame_type in next) next[im.frame_type] = { ...emptyFrame(), fileId: im.file_id }
-        }
-        return next
-      })
-    }).catch(() => {})
+  const resumeFrameTask = useCallback(async (shotId: string, ft: FrameType, task: TaskListItem) => {
+    if (ownedTaskIdsRef.current.has(task.task_id) || resumedTaskIdsRef.current.has(task.task_id)) return
+    resumedTaskIdsRef.current.add(task.task_id)
+    setFrames((prev) => ({
+      ...prev,
+      [ft]: { ...prev[ft], busy: true, error: '', stage: taskStage(task) },
+    }))
+    try {
+      const status = await api.pollTask(
+        task.task_id,
+        (progress) => {
+          if (selRef.current !== shotId) return
+          setFrames((prev) => ({
+            ...prev,
+            [ft]: { ...prev[ft], busy: true, stage: `生成画面… ${progress}%` },
+          }))
+          setFrameTasks((current) => ({
+            ...current,
+            [shotId]: {
+              ...current[shotId],
+              [ft]: { ...(current[shotId]?.[ft] || task), status: 'running', progress },
+            },
+          }))
+        },
+        120,
+        () => cancelledRef.current || selRef.current !== shotId,
+      )
+      if (cancelledRef.current || selRef.current !== shotId) return
+      setFrameTasks((current) => ({
+        ...current,
+        [shotId]: { ...current[shotId], [ft]: { ...task, ...status } },
+      }))
+      if (status.status === 'succeeded') {
+        const imgs = await api.frameImages(shotId)
+        const hit = imgs.find((image) => image.frame_type === ft)
+        if (!hit?.file_id) throw new Error('任务完成但未返回图片（模型未产出）')
+        setThumbs((current) => ({
+          ...current,
+          [shotId]: { ...current[shotId], [ft]: hit.file_id! },
+        }))
+        setFrames((prev) => ({
+          ...prev,
+          [ft]: { ...prev[ft], busy: false, stage: '', error: '', fileId: hit.file_id },
+        }))
+      } else {
+        const result = await api.taskResult(task.task_id).catch(() => null)
+        setFrames((prev) => ({
+          ...prev,
+          [ft]: {
+            ...prev[ft],
+            busy: false,
+            stage: '',
+            error: result?.error || (status.status === 'cancelled' ? '生成已停止' : '生成失败'),
+          },
+        }))
+      }
+    } catch (error: any) {
+      if (selRef.current === shotId) {
+        setFrames((prev) => ({
+          ...prev,
+          [ft]: { ...prev[ft], busy: false, stage: '', error: error?.message || '生成失败' },
+        }))
+      }
+    } finally {
+      resumedTaskIdsRef.current.delete(task.task_id)
+    }
   }, [])
+
+  // 选中镜头 → 同时载入已有图片和后端持久化的最新生图任务。
+  const loadFrames = useCallback(async (shotId: string) => {
+    setFrames({ first: emptyFrame(), key: emptyFrame(), last: emptyFrame() })
+    try {
+      const [imgs, taskIndex] = await Promise.all([
+        api.frameImages(shotId),
+        api.frameTaskIndex().catch(() => null),
+      ])
+      if (selRef.current !== shotId) return // 已切换镜头，丢弃过期响应
+      if (taskIndex) setFrameTasks(taskIndex)
+      const next: Record<FrameType, FrameState> = {
+        first: emptyFrame(), key: emptyFrame(), last: emptyFrame(),
+      }
+      for (const image of imgs) {
+        if (image.frame_type in next) next[image.frame_type] = { ...emptyFrame(), fileId: image.file_id }
+      }
+      const task = taskIndex?.[shotId]?.key
+      if (task && ACTIVE_TASK_STATUSES.has(task.status)) {
+        next.key = { ...next.key, busy: true, stage: taskStage(task), error: '' }
+      }
+      setFrames(next)
+      if (task && ACTIVE_TASK_STATUSES.has(task.status)) {
+        void resumeFrameTask(shotId, 'key', task)
+      } else if (task && (task.status === 'failed' || task.status === 'cancelled')) {
+        const result = await api.taskResult(task.task_id).catch(() => null)
+        if (selRef.current === shotId) {
+          setFrames((prev) => ({
+            ...prev,
+            key: {
+              ...prev.key,
+              error: result?.error || (task.status === 'cancelled' ? '生成已停止' : '生成失败'),
+            },
+          }))
+        }
+      }
+    } catch {
+      // 页面仍可继续使用；下一次切换镜头会重试恢复。
+    }
+  }, [resumeFrameTask])
 
   useEffect(() => {
     if (!sel) return
@@ -111,6 +256,7 @@ export default function Frames({ project }: { project: Project | null }) {
     const savedPrompt = String(promptDrafts[ft] ?? detail?.key_frame_prompt ?? '').trim()
     const alive = () => selRef.current === shotId // 镜头未被切走才回写 UI
     const cancelled = () => cancelledRef.current
+    let imageTaskId = ''
     setFrame(ft, { busy: true, error: '', stage: '生成提示词…' })
     try {
       // 1) 基础提示词（失败/空则退回剧本摘录构造）
@@ -143,7 +289,27 @@ export default function Frames({ project }: { project: Project | null }) {
       if (alive()) setFrame(ft, { stage: refs.length ? `生成画面…（${refs.length} 张参考图）` : '生成画面…' })
       const ratio = project?.default_video_ratio || '9:16'
       const itask = await api.createFrameImageTask(shotId, ft, finalPrompt, ratio, refs)
-      const is = await api.pollTask(itask, (p) => { if (alive()) setFrame(ft, { stage: `生成画面… ${p}%` }) }, 120, cancelled)
+      imageTaskId = itask
+      ownedTaskIdsRef.current.add(itask)
+      const pendingTask: TaskListItem = { task_id: itask, status: 'pending', progress: 0, created_at_ts: Date.now() / 1000 }
+      setFrameTasks((current) => ({
+        ...current,
+        [shotId]: { ...current[shotId], [ft]: pendingTask },
+      }))
+      const is = await api.pollTask(itask, (p) => {
+        if (alive()) setFrame(ft, { stage: `生成画面… ${p}%` })
+        setFrameTasks((current) => ({
+          ...current,
+          [shotId]: {
+            ...current[shotId],
+            [ft]: { ...(current[shotId]?.[ft] || pendingTask), status: 'running', progress: p },
+          },
+        }))
+      }, 120, cancelled)
+      setFrameTasks((current) => ({
+        ...current,
+        [shotId]: { ...current[shotId], [ft]: { ...(current[shotId]?.[ft] || pendingTask), ...is } },
+      }))
       if (is.status !== 'succeeded') {
         const r = await api.taskResult(itask).catch(() => null)
         throw new Error(r?.error || `生成${is.status === 'cancelled' ? '已取消' : '失败'}`)
@@ -161,9 +327,65 @@ export default function Frames({ project }: { project: Project | null }) {
       api.shotDetail(shotId).then((d) => { if (selRef.current === shotId) setDetail(d) }) // 刷新真实帧提示词
 
     } catch (e: any) {
+      if (imageTaskId) {
+        setFrameTasks((current) => ({
+          ...current,
+          [shotId]: {
+            ...current[shotId],
+            [ft]: { ...(current[shotId]?.[ft] || { task_id: imageTaskId, progress: 0 }), status: 'failed' },
+          },
+        }))
+      }
       if (alive()) setFrame(ft, { busy: false, stage: '', error: e?.message || '生成失败' })
+    } finally {
+      if (imageTaskId) ownedTaskIdsRef.current.delete(imageTaskId)
     }
   }
+
+  const applyFrameBatchStatus = useCallback((batchId: string, status: AssetImageBatchStatus) => {
+    setBatch({
+      batchId,
+      done: status.succeeded + status.failed + status.cancelled,
+      total: status.total,
+    })
+    const itemStatuses: Record<string, string> = {}
+    for (const item of status.items || []) {
+      if (item.shot_id) itemStatuses[item.shot_id] = item.status
+    }
+    setBatchItemStatuses(itemStatuses)
+  }, [])
+
+  const watchFrameBatch = useCallback(async (batchId: string) => {
+    if (watchedBatchIdsRef.current.has(batchId)) return
+    watchedBatchIdsRef.current.add(batchId)
+    try {
+      const finalStatus = await api.pollFrameImageBatch(
+        batchId,
+        (status) => applyFrameBatchStatus(batchId, status),
+        () => cancelledRef.current,
+      )
+      if (!finalStatus || cancelledRef.current) return
+      applyFrameBatchStatus(batchId, finalStatus)
+    } catch {
+      // 后端重启后内存队列可能不存在；已完成的单项任务仍会从任务表恢复。
+    } finally {
+      watchedBatchIdsRef.current.delete(batchId)
+      if (cancelledRef.current) return
+      forgetFrameBatch(batchId)
+      setBatch(null)
+      setBatchItemStatuses({})
+      api.frameIndex().then(setThumbs).catch(() => {})
+      api.frameTaskIndex().then(setFrameTasks).catch(() => {})
+      if (selRef.current) loadFrames(selRef.current)
+    }
+  }, [applyFrameBatchStatus, loadFrames])
+
+  useEffect(() => {
+    if (!project) return
+    const stored = readStoredFrameBatch()
+    if (!stored || stored.projectId !== project.id) return
+    void watchFrameBatch(stored.batchId)
+  }, [project?.id, watchFrameBatch])
 
   async function generateBatchFrames() {
     if (!project || batch || !shots.length) return
@@ -178,20 +400,19 @@ export default function Frames({ project }: { project: Project | null }) {
       alert('当前列表没有缺失画面的镜头')
       return
     }
-    setBatch({ done: 0, total: queue.length })
+    setBatch({ batchId: '', done: 0, total: queue.length })
     try {
       const items = await Promise.all(queue.map(async (shot) => {
         const refs = await api.frameRefs(shot.id, project.id).catch(() => [])
         return { shot_id: shot.id, name: shot.title || `镜头 ${shot.index}`, frame_type: ft, images: refs }
       }))
       const created = await api.createFrameImageBatch(items, ratio)
-      await api.pollFrameImageBatch(created.batch_id, (s) => {
-        setBatch({ done: s.succeeded + s.failed, total: s.total })
-      })
-    } finally {
+      rememberFrameBatch({ projectId: project.id, batchId: created.batch_id })
+      setBatch({ batchId: created.batch_id, done: 0, total: created.total })
+      await watchFrameBatch(created.batch_id)
+    } catch (error: any) {
       setBatch(null)
-      api.frameIndex().then(setThumbs).catch(() => {})
-      if (selRef.current) loadFrames(selRef.current)
+      alert(error?.message || '批量生成任务提交失败')
     }
   }
 
@@ -257,6 +478,8 @@ export default function Frames({ project }: { project: Project | null }) {
                   {openCh[c.id] && list.map((s) => {
                     const t = thumbs[s.id]
                     const tf = t?.key
+                    const task = frameTasks[s.id]?.key
+                    const statusText = frameStatusLabel(batchItemStatuses[s.id] || task?.status, task?.progress, !!tf)
                     return (
                       <div key={s.id} className={'fshot' + (sel?.id === s.id ? ' sel' : '')} onClick={() => setSel(s)}>
                         {tf ? (
@@ -266,7 +489,9 @@ export default function Frames({ project }: { project: Project | null }) {
                         )}
                         <div className="m">
                           <div className="t">{s.title || `镜头 ${s.index}`}</div>
-                          <div className="s">{String(s.index).padStart(2, '0')}{s.camera_shot ? ` · ${s.camera_shot}` : ''}</div>
+                          <div className="s">
+                            {String(s.index).padStart(2, '0')}{s.camera_shot ? ` · ${s.camera_shot}` : ''}{statusText ? ` · ${statusText}` : ''}
+                          </div>
                         </div>
                       </div>
                     )
@@ -319,7 +544,7 @@ export default function Frames({ project }: { project: Project | null }) {
                           {st.fileId ? (
                             <span className="tag" style={{ cursor: st.busy ? 'default' : 'pointer', opacity: st.busy ? 0.5 : 1 }}
                               onClick={st.busy ? undefined : () => generate(f.key)}>
-                              {st.busy ? '生成中' : '重生成'}
+                              {st.busy ? '生成中' : st.error ? '生成失败 · 重生成' : '重生成'}
                             </span>
                           ) : (
                             <button className="btn ghost" style={{ padding: '2px 9px', fontSize: 11 }} disabled={st.busy || !sel} onClick={() => generate(f.key)}>

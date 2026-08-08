@@ -2,7 +2,9 @@
 const BASE = '/api/v1'
 
 async function get<T = any>(path: string): Promise<T> {
-  const r = await fetch(BASE + path)
+  // 任务进度和素材状态会在同一个 URL 上持续变化。禁止浏览器复用旧的 GET
+  // 响应，避免后台已推进但界面仍停在“排队 0/N”。
+  const r = await fetch(BASE + path, { cache: 'no-store' })
   if (!r.ok) throw new Error(`GET ${path} ${r.status}`)
   const j = await r.json()
   return j.data ?? j
@@ -53,6 +55,13 @@ export interface EntityDeleteResult {
 }
 export interface FrameImage { id: number; shot_detail_id: string; frame_type: 'first' | 'key' | 'last'; file_id: string | null }
 export interface TaskStatus { task_id: string; status: string; progress: number }
+export interface TaskListItem extends TaskStatus {
+  created_at_ts?: number | null
+  updated_at_ts?: number | null
+  relation_entity_id?: string | null
+  navigate_relation_entity_id?: string | null
+}
+export type FrameTaskIndex = Record<string, Partial<Record<FrameType, TaskListItem>>>
 export interface AssetImageBatchStatus {
   batch_id: string
   status: string
@@ -178,6 +187,37 @@ export const api = {
       if (page >= (d.pagination?.max_page ?? 1)) break
     }
     return m
+  },
+  // 从后端任务记录恢复每个镜头最新的生图状态，刷新或切页后仍可显示并继续轮询。
+  async frameTaskIndex(): Promise<FrameTaskIndex> {
+    const images: FrameImage[] = []
+    for (let page = 1; ; page++) {
+      const d = await get<Paged<FrameImage>>(`/studio/shot-frame-images?page=${page}&page_size=100`)
+      images.push(...d.items)
+      if (page >= (d.pagination?.max_page ?? 1)) break
+    }
+    const imageById = new Map(images.map((image) => [String(image.id), image]))
+    const tasks: TaskListItem[] = []
+    for (let page = 1; ; page++) {
+      const d = await get<Paged<TaskListItem>>(
+        `/film/tasks?task_kind=image_generation&relation_type=shot_frame_image&recent_seconds=86400&page=${page}&page_size=100`,
+      )
+      tasks.push(...d.items)
+      if (page >= (d.pagination?.max_page ?? 1)) break
+    }
+    const result: FrameTaskIndex = {}
+    for (const task of tasks) {
+      const image = imageById.get(String(task.relation_entity_id || ''))
+      const shotId = task.navigate_relation_entity_id || image?.shot_detail_id
+      const frameType = image?.frame_type
+      if (!shotId || !frameType) continue
+      const current = result[shotId]?.[frameType]
+      const taskTime = task.updated_at_ts ?? task.created_at_ts ?? 0
+      const currentTime = current?.updated_at_ts ?? current?.created_at_ts ?? 0
+      if (current && currentTime > taskTime) continue
+      ;(result[shotId] ||= {})[frameType] = task
+    }
+    return result
   },
   createFramePromptTask: (shotId: string, frameType: FrameType) =>
     post<{ task_id: string }>('/film/tasks/shot-frame-prompts', { shot_id: shotId, frame_type: frameType }).then((d) => d.task_id),

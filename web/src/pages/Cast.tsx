@@ -556,14 +556,6 @@ export default function Cast({ project }: { project: Project | null }) {
                   <div className="cc-ph"><span>○ 未生成</span></div>
                 )}
               </div>
-              {(angles[e.id]?.length ?? 0) > 0 && (
-                <div className="cc-angles">
-                  {angles[e.id].map((im) => (
-                    <img key={im.id} src={fileUrl(im.file_id)} alt={im.view_angle} title={`${im.name || im.view_angle} · 点击放大`}
-                      onClick={() => setLb(fileUrl(im.file_id))} />
-                  ))}
-                </div>
-              )}
               <div className="cc-body">
                 <div className="cc-h">
                   <input

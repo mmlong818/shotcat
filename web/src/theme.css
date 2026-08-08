@@ -367,8 +367,6 @@ img.zoomable{cursor:zoom-in}
 .cast-card .cc-img img{display:block;width:100%;height:auto}
 .cast-card .cc-ph{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--text-3);font-size:12px}
 .cast-card .cc-ph .plus{width:34px;height:34px;border-radius:50%;border:1px dashed var(--border);display:grid;place-items:center;font-size:18px}
-.cast-card .cc-angles{display:flex;gap:6px;padding:8px 12px 0;overflow-x:auto}
-.cast-card .cc-angles img{height:52px;border-radius:5px;cursor:zoom-in;border:1px solid var(--border);flex:none}
 .cast-card .cc-body{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .cast-card .cc-h{display:flex;align-items:baseline;gap:8px}
 .cast-card .cc-h .n{font-family:var(--serif);font-size:15px;font-weight:700;color:var(--text)}

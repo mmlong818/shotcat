@@ -943,6 +943,53 @@ async def build_run_args(
     }
 
 
+async def resolve_batch_frame_prompt(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    frame_type: str,
+) -> str:
+    """为批量生图读取已保存提示词；没有时从镜头真值构造稳定的本地提示词。
+
+    批量队列必须在未配置文本模型时仍可工作，因此这里不调用 LLM。图片任务的
+    最终渲染阶段仍会补入角色、场景、道具与连续性约束。
+    """
+
+    normalized_frame_type = normalize_frame_type(frame_type)
+    stmt = (
+        select(Shot, ShotDetail)
+        .join(ShotDetail, ShotDetail.id == Shot.id)
+        .where(Shot.id == shot_id)
+    )
+    row = (await db.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail=entity_not_found("ShotDetail"))
+    shot, detail = row
+
+    prompt_field = {
+        "first": "first_frame_prompt",
+        "key": "key_frame_prompt",
+        "last": "last_frame_prompt",
+    }[normalized_frame_type]
+    saved_prompt = _compact_text(getattr(detail, prompt_field, ""))
+    if saved_prompt:
+        return saved_prompt
+
+    parts: list[str] = []
+    for value in (
+        _enum_value(detail.camera_shot),
+        _compact_text(shot.title),
+        _compact_text(detail.description),
+        _compact_text(shot.script_excerpt),
+    ):
+        if value and value not in parts:
+            parts.append(value)
+    prompt = "，".join(parts).strip("，")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="No usable frame prompt source")
+    return prompt[:1000]
+
+
 async def run_shot_frame_prompt_task(
     task_id: str,
     run_args: dict,

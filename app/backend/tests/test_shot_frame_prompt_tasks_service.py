@@ -32,6 +32,7 @@ from app.services.film.shot_frame_prompt_tasks import (
     build_run_args,
     normalize_frame_type,
     relation_type_for_frame,
+    resolve_batch_frame_prompt,
 )
 from app.services.studio.action_beats import infer_action_beat_sequence, pick_action_beat_for_frame
 
@@ -285,6 +286,36 @@ async def test_build_run_args_aggregates_dialog_and_project_style() -> None:
         assert "必须：与上一镜头同场景时，不要无故翻转人物面向和左右轴线" in run_args["input"]["director_command_summary"]
         assert "必须：仅参考下一镜头的可见空间方向和视觉重心，不写未来动作、变化或衔接结果" in run_args["input"]["director_command_summary"]
         assert "必须：以场景 废弃走廊 作为空间锚点" in run_args["input"]["director_command_summary"]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_resolve_batch_frame_prompt_uses_saved_prompt() -> None:
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+        detail = await db.get(ShotDetail, "s1")
+        assert detail is not None
+        detail.key_frame_prompt = "已确认的关键帧提示词"
+        await db.commit()
+
+        prompt = await resolve_batch_frame_prompt(db, shot_id="s1", frame_type="key")
+
+        assert prompt == "已确认的关键帧提示词"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_resolve_batch_frame_prompt_falls_back_without_text_model() -> None:
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+
+        prompt = await resolve_batch_frame_prompt(db, shot_id="s1", frame_type="key")
+
+        assert prompt.startswith("MS，镜头一")
+        assert "狭长走廊里，主角谨慎前行并回头确认身后动静。" in prompt
+        assert "角色推门而入。" in prompt
     await engine.dispose()
 
 
