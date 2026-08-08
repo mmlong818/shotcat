@@ -42,6 +42,7 @@ export default function Storyboard({ project }: { project: Project | null }) {
   const [sel, setSel] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [pipe, setPipe] = useState('') // shot-breakdown 进行中
+  const [pendingRepair, setPendingRepair] = useState<{ jobId: string; issues: string[]; error: string } | null>(null)
   const pipelineActive = usePipelineJobActive(project?.id, 'shot-breakdown')
   const [err, setErr] = useState('')
   const navigate = useNavigate()
@@ -100,23 +101,14 @@ export default function Storyboard({ project }: { project: Project | null }) {
       for (;;) {
         const state = await api.pollPipeline(jobId, 200, () => cancelledRef.current)
         if (state.status === 'done') {
+          setPendingRepair(null)
           await loadAll()
           return
         }
         if (state.status !== 'awaiting_confirmation') return
         await loadAll()
-        const issueText = (state.issues || []).slice(0, 6).join('\n')
-        const issueCount = state.issues?.length || '若干'
-        const confirmed = window.confirm(
-          `导演校验发现 ${issueCount} 个关键问题，完整分镜草稿已经保存。\n\n${issueText || state.error}\n\n点击“确定”后只修正对应镜头，其他镜头保持不变。`,
-        )
-        if (!confirmed) {
-          await api.cancelPipelineJob(jobId).catch(() => null)
-          forgetPipelineJob(jobId)
-          setErr('已停止导演修正，当前分镜草稿已保留。')
-          return
-        }
-        await api.confirmPipelineRepair(jobId)
+        setPendingRepair({ jobId, issues: state.issues || [], error: state.error || '' })
+        return
       }
     } catch (e: any) {
       if (e?.message?.includes('job not found')) {
@@ -128,6 +120,35 @@ export default function Storyboard({ project }: { project: Project | null }) {
     } finally {
       if (pollingBreakdownRef.current === jobId) pollingBreakdownRef.current = ''
       setPipe('')
+    }
+  }
+
+  async function continueDirectorRepair() {
+    if (!pendingRepair) return
+    const repair = pendingRepair
+    const { jobId } = repair
+    setPendingRepair(null)
+    setErr('')
+    try {
+      await api.confirmPipelineRepair(jobId)
+      await superviseBreakdown(jobId)
+    } catch (e: any) {
+      setPendingRepair(repair)
+      alert(e?.message || '继续导演修正失败')
+    }
+  }
+
+  async function stopDirectorRepair() {
+    if (!pendingRepair) return
+    if (!window.confirm('确定停止导演修正？当前已经生成的分镜草稿会保留。')) return
+    const { jobId } = pendingRepair
+    try {
+      await api.cancelPipelineJob(jobId)
+      forgetPipelineJob(jobId)
+      setPendingRepair(null)
+      setErr('已停止导演修正，当前分镜草稿已保留。')
+    } catch (e: any) {
+      alert(e?.message || '停止导演修正失败')
     }
   }
 
@@ -181,9 +202,25 @@ export default function Storyboard({ project }: { project: Project | null }) {
         <h1>分镜 · 时序</h1>
         <div className="spacer" />
         <button className={`btn ${breakdownComplete ? 'ghost' : 'primary'}`} disabled={!!pipe || pipelineActive} onClick={aiBreakdown}>
-          {pipe === 'shot' || pipelineActive ? '拆镜头中…' : 'AI 拆镜头'}
+          {pendingRepair ? '等待导演确认' : pipe === 'shot' || pipelineActive ? '拆镜头中…' : 'AI 拆镜头'}
         </button>
       </div>
+
+      {pendingRepair && (
+        <div className="repair-panel" role="status">
+          <div className="repair-panel-copy">
+            <strong>导演校验发现 {pendingRepair.issues.length || '若干'} 个关键问题</strong>
+            <span>完整分镜草稿已保存。继续后只修正对应镜头，切换页面不会停止任务。</span>
+            {(pendingRepair.issues.length > 0 || pendingRepair.error) && (
+              <ul>{(pendingRepair.issues.length ? pendingRepair.issues : [pendingRepair.error]).slice(0, 6).map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            )}
+          </div>
+          <div className="repair-panel-actions">
+            <button type="button" className="btn primary" onClick={() => void continueDirectorRepair()}>继续修正</button>
+            <button type="button" className="btn ghost" onClick={() => void stopDirectorRepair()}>停止修正</button>
+          </div>
+        </div>
+      )}
 
       {totalShots > 0 && (
         <div className="sb-ctx">

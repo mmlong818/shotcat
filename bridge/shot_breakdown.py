@@ -19,20 +19,24 @@ SYS = f"""你是拥有十年经验的网络动漫剧分镜师兼摄影指导。�
 
 【三阶段工作顺序】
 1. 先划分镜头边界：识别场次、动作转折、台词、反应、情绪爆点和重要道具，不遗漏、不重复原文。
-2. 再为每个场景建立空间方案：锁定固定参照物、人物左右站位、朝向、视线轴和移动触发点。
-3. 最后派生镜头参数：先决定本镜头的叙事功能，再选择景别、机位、焦距、构图和运动。禁止为“多样”而随机换机位。
+2. 再为每个场景建立空间方案：先写唯一且固定的 scene_geometry，再锁定人物左右站位、朝向、视线轴和移动触发点；同场景不得换一种说法重写空间结构。
+3. 最后设计相邻镜头关系并派生镜头参数：先决定 transition_from_previous 的匹配点与转场意图，再选择景别、机位、焦距、构图和运动。禁止为“多样”而随机换机位。
 
 【连续性铁律】
 - 每进入新场景，先用 LS/ELS/MLS 建立空间，再按“主镜头/双人关系 → 正反打或反应 → 信息或情绪落点”推进；极短场景可以合并，但不得一场只剩一张无设计的说明图。
 - 同一场景内，spatial_anchor 必须使用固定参照物描述位置。剧本未明确写走、跑、起身、坐下、转身等位移时，人物位置不得改变。
+- character_states 必须把角色固定身份与本镜可变状态分开：只记录当前镜可见的位置、姿态、朝向、视线和可见程度；角色外貌仍以资产为准。只有剧本或 action 明确发生移动/转身/姿态变化时，下一镜才能更新对应状态。
+- scene_geometry 是场景不变的门窗、通道、家具和关键道具相对位置；viewing_direction 是本镜从哪里看向哪里；visible_range 是本镜实际能看见的边界。三者不得互相替代。机位必须从 scene_geometry 中可成立，不得为了变化虚构另一套空间。
 - screen_direction 必须明确人物在画面左/右、面对方向和视线落点；正反打始终守住 180 度轴线，换机位至少满足 30 度规则。
 - continuity_from_previous 必须写出与前镜可见状态的连接：空间、姿态、视线、动作因果或构图重心；不得只写“承接上一镜”。
+- transition_from_previous 必须写明相邻镜头采用的关系（动作匹配、视线匹配、视觉重心匹配、因果切换、反应切换、声音桥或直接切换）、具体匹配点和叙事意图；本场首镜写明入场方式。转场关系用于组织镜头，不得把动态转场过程写进静态 description。
 - 对话不是连续拍说话者。先建立双方空间关系，再在说话者、受话者反应和必要双人镜头之间切换；一句有冲击力的台词可在下一镜切受话者反应。
 - 相邻镜头的景别、角度和构图变化必须有叙事动机。情绪爆点/信息落点用 CU/ECU，关键物件才用插入特写，小景别目标占比不少于 40%。
 
 【画面与资产】
 - scene、characters、props 只能使用输入资产库里的名称。角色造型名带“·状态名”时必须按剧情选对状态，不得只写基础名。
-- action 与 action_beats 只写摄影机可见的动作和状态；description 是当前镜头的一张代表性静态画面，必须写清观看方向、画面边界、前中后景、主体位置、姿态、光线和情绪，不写剧情总结。
+- action 与 action_beats 只写摄影机可见的动作和状态；description 是当前镜头的一张代表性静态画面，必须与 viewing_direction、visible_range、character_states 一致，写清前中后景、主体位置、姿态、光线和情绪，不写剧情总结。
+- 背对镜头或面部被遮挡时不得描述不可见表情；LS/ELS 等大景别不得依赖细微眼神、皮肤纹理等不可辨认信息表达剧情。characters 只列当前画面真实可见角色，character_states 与之逐一对应。
 - 空镜 action 必须以“空镜：”开头。不得凭常识添加手机、书包、雨伞、杯子等随身物件。
 - 不使用肩部遮挡或借肩构图；正反打采用干净单人镜头、平视轻侧面或双人关系镜头，并保持左右站位与视线。
 - reference_relations 只说明本镜头实际引用的角色、场景、道具分别锁定什么。
@@ -52,7 +56,9 @@ SYS = f"""你是拥有十年经验的网络动漫剧分镜师兼摄影指导。�
 - 画内人物 speaker/target 使用角色造型的完整名称；画外音或旁白可留空。
 
 【每镜必填字段】
-scene、time、space、title、script_content、camera_shot、angle、movement、focal_length、composition、action、action_beats、description、spatial_anchor、screen_direction、continuity_from_previous、narrative_function、atmosphere、sfx、reference_relations、dialogues、duration、characters、props。
+scene、time、space、title、script_content、camera_shot、angle、movement、focal_length、composition、action、action_beats、description、scene_geometry、viewing_direction、visible_range、spatial_anchor、screen_direction、character_states、continuity_from_previous、transition_from_previous、narrative_function、atmosphere、sfx、reference_relations、dialogues、duration、characters、props。
+
+character_states 格式为数组：{{"name":"角色造型完整名称","location":"相对固定参照物的位置","posture":"当前静态姿态","facing":"身体朝向","gaze":"视线落点","visibility":"面部与身体实际可见程度"}}。黑场或空镜可为空数组。
 
 script_content 必须从完整剧本按原顺序逐字复制；纯反应镜头或插入镜头可以为空，但不得重复占用前镜原文。所有镜头的 script_content 拼接后应覆盖完整剧本，无遗漏、无重复、无改写。输出只包含 JSON。"""
 
@@ -68,7 +74,7 @@ USER_TMPL = """【拆分模式】标准模式
 {props}
 
 把全剧本拆成标准粒度的镜头级分镜。先在内部完成场景空间与镜头序列规划，再输出结果，不要输出分析过程。
-输出 JSON：{{"shots":[{{"scene":"","time":"日","space":"内","title":"","script_content":"","camera_shot":"","angle":"","movement":"","focal_length":"","composition":"","action":"","action_beats":[],"description":"","spatial_anchor":"","screen_direction":"","continuity_from_previous":"","narrative_function":"","atmosphere":"","sfx":"","reference_relations":"","dialogues":[{{"speaker":"","target":"","text":"","mode":"DIALOGUE"}}],"duration":6,"characters":[],"props":[]}}]}}"""
+输出 JSON：{{"shots":[{{"scene":"","time":"日","space":"内","title":"","script_content":"","camera_shot":"","angle":"","movement":"","focal_length":"","composition":"","action":"","action_beats":[],"description":"","scene_geometry":"","viewing_direction":"","visible_range":"","spatial_anchor":"","screen_direction":"","character_states":[{{"name":"","location":"","posture":"","facing":"","gaze":"","visibility":""}}],"continuity_from_previous":"","transition_from_previous":"","narrative_function":"","atmosphere":"","sfx":"","reference_relations":"","dialogues":[{{"speaker":"","target":"","text":"","mode":"DIALOGUE"}}],"duration":6,"characters":[],"props":[]}}]}}"""
 
 REVIEW_SYS = f"""你是资深分镜质量控制导演。校验并直接修复输入的完整镜头表，返回修复后的 shots，不输出修改说明。
 
@@ -76,10 +82,12 @@ REVIEW_SYS = f"""你是资深分镜质量控制导演。校验并直接修复输
 1. 原文完整性：script_content 按原顺序逐字覆盖剧本；台词不删改；不同人物台词不塞进同一镜。
 2. 空间连续性：同场景固定空间锚点、人物左右站位、朝向、视线和 180 度轴线；只有原文明确位移才更新位置。
 3. 镜头序列：建立空间后再进入关系镜头、正反打、反应和落点；相邻镜头必须存在动作因果、视线或构图重心的明确连接。
-4. 镜头语言：景别和机位服务情绪与权力关系，换机位满足 30 度规则；小景别不少于 40%；避免连续三个相同景别和没有动机的随机运镜。
-5. 画面可生成：description 是一张确定的静态画面，包含观看方向、可视边界、前中后景、主体位置姿态、光线与情绪。
-6. 资产准确：scene/characters/props 只能原样使用输入资产；道具仅在真实可见或互动时引用。
-7. 技术值：camera_shot 仅 [{SHOTS}]；angle 仅 [{ANGLES}] 且不用 OVER_SHOULDER；movement 仅 [{MOVES}]；构图禁用中心构图；剧本明确要求黑屏、黑场或淡出结束时，黑场是合法构图。
+4. 状态与场景锚定：同场景 scene_geometry 必须逐字一致；逐角色检查 character_states，只有原文或动作明确移动、转身、起身、坐下时才更新位置、姿态或朝向；viewing_direction 与 visible_range 必须在固定空间中成立。
+5. 镜头关系：transition_from_previous 必须写清相邻镜头的匹配点与叙事意图；动作匹配、视线匹配和视觉重心匹配必须能从前后两镜的可见状态中得到支持。
+6. 镜头语言：景别和机位服务情绪与权力关系，换机位满足 30 度规则；小景别不少于 40%；避免连续三个相同景别和没有动机的随机运镜。
+7. 画面可生成：description 是一张确定的静态画面；背面或遮挡人物不写不可见表情，大景别不靠细微表情传递信息。
+8. 资产准确：scene/characters/props 只能原样使用输入资产；道具仅在真实可见或互动时引用。
+9. 技术值：camera_shot 仅 [{SHOTS}]；angle 仅 [{ANGLES}] 且不用 OVER_SHOULDER；movement 仅 [{MOVES}]；构图禁用中心构图；剧本明确要求黑屏、黑场或淡出结束时，黑场是合法构图。
 
 不要降低镜头数量来规避问题，不要添加原文没有的剧情。只输出 JSON：{{"shots":[...]}}。"""
 
@@ -247,6 +255,21 @@ def _normalize_dialogues(shot: dict) -> list[dict]:
     return normalized
 
 
+def _normalize_character_states(value) -> list[dict]:
+    """规范化逐镜角色可变状态；身份外观继续由角色资产负责。"""
+    if not isinstance(value, list):
+        return []
+    states: list[dict] = []
+    for raw in value:
+        if not isinstance(raw, dict) or not _text(raw.get("name")):
+            continue
+        states.append({
+            key: _text(raw.get(key))
+            for key in ("name", "location", "posture", "facing", "gaze", "visibility")
+        })
+    return states
+
+
 def _normalize_shots(value) -> list[dict]:
     """规范化两轮模型输出，保证校验和落库读取同一组字段。"""
     if not isinstance(value, list):
@@ -254,8 +277,9 @@ def _normalize_shots(value) -> list[dict]:
     normalized: list[dict] = []
     text_fields = (
         "scene", "time", "space", "title", "script_content", "camera_shot", "angle", "movement",
-        "focal_length", "composition", "action", "description", "spatial_anchor", "screen_direction",
-        "continuity_from_previous", "narrative_function", "atmosphere", "sfx", "reference_relations",
+        "focal_length", "composition", "action", "description", "scene_geometry", "viewing_direction",
+        "visible_range", "spatial_anchor", "screen_direction", "continuity_from_previous",
+        "transition_from_previous", "narrative_function", "atmosphere", "sfx", "reference_relations",
     )
     for raw in value:
         if not isinstance(raw, dict):
@@ -271,6 +295,7 @@ def _normalize_shots(value) -> list[dict]:
         shot["characters"] = _text_list(raw.get("characters"))
         shot["props"] = _text_list(raw.get("props"))
         shot["action_beats"] = _text_list(raw.get("action_beats")) or ([shot["action"]] if shot["action"] else [])
+        shot["character_states"] = _normalize_character_states(raw.get("character_states"))
         shot["dialogues"] = _normalize_dialogues(raw)
         shot["duration"] = raw.get("duration")
         normalized.append(shot)
@@ -280,6 +305,64 @@ def _normalize_shots(value) -> list[dict]:
 def _compact_source(value: str) -> str:
     """去除排版空白后比较原文覆盖度，保留所有实际文字与标点。"""
     return re.sub(r"\s+", "", value or "")
+
+
+_EXPLICIT_STATE_CHANGE = re.compile(
+    r"走|跑|进入|离开|靠近|退后|上前|移到|来到|穿过|起身|站起|坐下|蹲下|跪下|躺下|转身|回头|转向|侧身"
+)
+_TRANSITION_RELATIONS = (
+    "动作匹配", "视线匹配", "视觉重心匹配", "因果切换", "反应切换", "声音桥", "直接切换", "入场",
+)
+
+
+def _states_by_name(shot: dict) -> dict[str, dict]:
+    return {
+        _text(state.get("name")): state
+        for state in shot.get("character_states") or []
+        if _text(state.get("name"))
+    }
+
+
+def _has_explicit_state_change(shot: dict, *, character_name: str, known_names: set[str]) -> bool:
+    source = " ".join([
+        _text(shot.get("script_content")),
+        _text(shot.get("action")),
+        *(_text_list(shot.get("action_beats"))),
+    ])
+    if not _EXPLICIT_STATE_CHANGE.search(source):
+        return False
+    aliases = {character_name, character_name.split("·", 1)[0]}
+    clauses = re.split(r"[。！？；，,\n]", source)
+    if any(any(alias and alias in clause for alias in aliases) and _EXPLICIT_STATE_CHANGE.search(clause) for clause in clauses):
+        return True
+    known_aliases = {alias for name in known_names for alias in (name, name.split("·", 1)[0]) if alias}
+    return not any(alias in source for alias in known_aliases)
+
+
+def _stabilize_continuity_truth(shots: list[dict]) -> list[dict]:
+    """把场景结构与无动作变更的角色状态收敛为代码维护的连续性真值。"""
+    scene_geometry_by_name: dict[str, str] = {}
+    previous_shot: dict | None = None
+    for shot in shots:
+        scene = _text(shot.get("scene"))
+        geometry = _text(shot.get("scene_geometry"))
+        if scene and scene not in scene_geometry_by_name and geometry:
+            scene_geometry_by_name[scene] = geometry
+        elif scene and scene in scene_geometry_by_name:
+            shot["scene_geometry"] = scene_geometry_by_name[scene]
+
+        previous = previous_shot if previous_shot is not None and previous_shot.get("scene") == scene else None
+        if previous is not None:
+            previous_states = _states_by_name(previous)
+            current_states = _states_by_name(shot)
+            known_names = set(previous_states) | set(current_states)
+            for name in sorted(set(previous_states) & set(current_states)):
+                if _has_explicit_state_change(shot, character_name=name, known_names=known_names):
+                    continue
+                for field in ("location", "posture", "facing"):
+                    current_states[name][field] = _text(previous_states[name].get(field))
+        previous_shot = shot
+    return shots
 
 
 def _storyboard_quality_issues(
@@ -297,7 +380,8 @@ def _storyboard_quality_issues(
     issues: list[str] = []
     required = (
         "scene", "title", "camera_shot", "angle", "movement", "action", "description",
-        "spatial_anchor", "screen_direction", "composition", "narrative_function",
+        "scene_geometry", "viewing_direction", "visible_range", "spatial_anchor", "screen_direction",
+        "composition", "continuity_from_previous", "transition_from_previous", "narrative_function",
     )
     for index, shot in enumerate(shots, 1):
         for field in required:
@@ -333,12 +417,52 @@ def _storyboard_quality_issues(
             if target and target not in character_names:
                 issues.append(f"[P0] 镜头{index:03d} 对白听者不是角色造型名：{target}")
 
+        states = _states_by_name(shot)
+        state_names = set(states)
+        visible_characters = set(shot.get("characters") or [])
+        unknown_state_names = sorted(state_names - character_names)
+        if unknown_state_names:
+            issues.append(f"[P0] 镜头{index:03d} 角色状态使用未知角色造型：{'、'.join(unknown_state_names)}")
+        if shot.get("composition") != "黑场" and state_names != visible_characters:
+            missing = sorted(visible_characters - state_names)
+            extra = sorted(state_names - visible_characters)
+            detail = "；".join(filter(None, [
+                f"缺少 {'、'.join(missing)}" if missing else "",
+                f"多出 {'、'.join(extra)}" if extra else "",
+            ]))
+            issues.append(f"[P0] 镜头{index:03d} character_states 未与可见角色逐一对应：{detail}")
+        for name, state in states.items():
+            for field in ("location", "posture", "facing", "gaze", "visibility"):
+                if not _text(state.get(field)):
+                    issues.append(f"[P0] 镜头{index:03d} 角色 {name} 缺少状态字段 {field}")
+        transition = _text(shot.get("transition_from_previous"))
+        if transition and not any(relation in transition for relation in _TRANSITION_RELATIONS):
+            issues.append(f"[P0] 镜头{index:03d} 镜间关系未使用允许的关系类型：{transition}")
+
         previous = shots[index - 2] if index > 1 else None
         starts_scene = previous is None or previous.get("scene") != shot.get("scene")
         if starts_scene and shot.get("camera_shot") not in {"MLS", "LS", "ELS"}:
             issues.append(f"[P1] 镜头{index:03d} 是场景首镜但未建立空间")
         if not starts_scene and not _text(shot.get("continuity_from_previous")):
             issues.append(f"[P0] 镜头{index:03d} 与同场景前镜没有明确承接")
+        if not starts_scene and _compact_source(_text(previous.get("scene_geometry"))) != _compact_source(_text(shot.get("scene_geometry"))):
+            issues.append(f"[P0] 镜头{index:03d} 与同场景前镜的 scene_geometry 不一致")
+        if not starts_scene:
+            previous_states = _states_by_name(previous)
+            for name in sorted(set(previous_states) & state_names):
+                changed = [
+                    field for field in ("location", "posture", "facing")
+                    if _compact_source(_text(previous_states[name].get(field)))
+                    != _compact_source(_text(states[name].get(field)))
+                ]
+                if changed and not _has_explicit_state_change(
+                    shot,
+                    character_name=name,
+                    known_names=set(previous_states) | state_names,
+                ):
+                    issues.append(
+                        f"[P0] 镜头{index:03d} 角色 {name} 未发生明确动作却改变状态：{'、'.join(changed)}"
+                    )
 
     compact_script = _compact_source(script)
     compact_covered = "".join(_compact_source(_text(shot.get("script_content"))) for shot in shots)
@@ -375,9 +499,14 @@ def _build_shot_description(shot: dict) -> str:
     """把结构化导演设计写入 ShotDetail.description，供相邻镜头与关键帧链真实消费。"""
     parts = [
         ("画面描述", shot.get("description")),
+        ("固定场景结构", shot.get("scene_geometry")),
+        ("观看方向", shot.get("viewing_direction")),
+        ("可视范围", shot.get("visible_range")),
         ("空间锚点", shot.get("spatial_anchor")),
         ("人物调度与轴线", shot.get("screen_direction")),
+        ("角色当前状态", json.dumps(shot.get("character_states") or [], ensure_ascii=False)),
         ("前镜承接", shot.get("continuity_from_previous")),
+        ("镜间关系", shot.get("transition_from_previous")),
         ("构图", "；".join(filter(None, [_text(shot.get("composition")), _text(shot.get("focal_length"))]))),
         ("叙事功能", shot.get("narrative_function")),
         ("参考图关系", shot.get("reference_relations")),
@@ -422,7 +551,7 @@ def _generate_reviewed_shots(
         chars=character_context,
         props=prop_context,
     ), model=model, temperature=0.45, timeout=300)
-    shots = _normalize_shots(draft.get("shots", []))
+    shots = _stabilize_continuity_truth(_normalize_shots(draft.get("shots", [])))
     if not shots:
         raise SystemExit("模型未产出镜头")
     initial_issues = _storyboard_quality_issues(
@@ -441,7 +570,7 @@ def _generate_reviewed_shots(
         issues="\n".join(f"- {item}" for item in initial_issues) or "- 未发现程序可判定的问题；仍需做空间与镜头语言专业复核",
         draft=json.dumps({"shots": shots}, ensure_ascii=False),
     ), model=model, temperature=0.2, timeout=300)
-    shots = _normalize_shots(reviewed.get("shots", []))
+    shots = _stabilize_continuity_truth(_normalize_shots(reviewed.get("shots", [])))
     final_issues = _storyboard_quality_issues(
         shots,
         script=script,
@@ -494,7 +623,7 @@ def _repair_reviewed_shots(
         temperature=0.1,
         timeout=300,
     )
-    normalized = _normalize_shots(repaired.get("shots", []))
+    normalized = _stabilize_continuity_truth(_normalize_shots(repaired.get("shots", [])))
     if len(normalized) != len(shots):
         final_issues = _storyboard_quality_issues(
             shots,
@@ -508,8 +637,10 @@ def _repair_reviewed_shots(
         )
         return shots, final_issues
 
-    merged = [candidate if index in target_indices else original
-              for index, (original, candidate) in enumerate(zip(shots, normalized), 1)]
+    merged = _stabilize_continuity_truth([
+        candidate if index in target_indices else original
+        for index, (original, candidate) in enumerate(zip(shots, normalized), 1)
+    ])
     final_issues = _storyboard_quality_issues(
         merged,
         script=script,
@@ -575,7 +706,7 @@ def run(pid: str, model: str, *, repair: bool = False):
         if not pending_path.exists():
             raise SystemExit("待修正分镜不存在，请重新执行 AI 拆镜头")
         pending = json.loads(pending_path.read_text(encoding="utf-8"))
-        pending_shots = _normalize_shots(pending.get("shots", []))
+        pending_shots = _stabilize_continuity_truth(_normalize_shots(pending.get("shots", [])))
         pending_issues = [_text(item) for item in pending.get("issues", []) if _text(item)]
         current_issues = _storyboard_quality_issues(
             pending_shots,

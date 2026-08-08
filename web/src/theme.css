@@ -245,6 +245,11 @@ img.th{object-fit:cover}
 .fld input,.fld select{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 11px;color:var(--text);font-size:13.5px;font-family:inherit}
 .fld input:focus,.fld select:focus{outline:none;border-color:var(--gold)}
 .fld-err{color:var(--danger);font-size:12px;margin-bottom:10px}
+.repair-panel{display:flex;align-items:flex-start;gap:18px;margin-bottom:14px;padding:14px 16px;border:1px solid var(--gold-line);border-radius:var(--r);background:var(--gold-soft)}
+.repair-panel-copy{min-width:0;display:flex;flex:1;flex-direction:column;gap:5px;color:var(--text-2);font-size:12px;line-height:1.55}
+.repair-panel-copy strong{color:var(--text);font-size:13px;font-weight:650}.repair-panel-copy ul{margin:3px 0 0 17px;color:var(--text-2)}
+.repair-panel-actions{display:flex;flex:none;gap:8px;align-items:center}
+@media(max-width:760px){.repair-panel{flex-direction:column}.repair-panel-actions{width:100%}.repair-panel-actions .btn{flex:1}}
 .modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
 
 /* ── 画面台：属性信息条 + 生成依据横向 ── */

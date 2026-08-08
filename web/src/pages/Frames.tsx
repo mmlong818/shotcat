@@ -137,6 +137,7 @@ export default function Frames({ project }: { project: Project | null }) {
   const ownedTaskIdsRef = useRef(new Set<string>())
   const resumedTaskIdsRef = useRef(new Set<string>())
   const watchedBatchIdsRef = useRef(new Set<string>())
+  const refreshedBatchItemsRef = useRef(new Set<string>())
   const autoStartedBatchRef = useRef('')
   const submittingBatchRef = useRef(false)
   const frameTasksRef = useRef<FrameTaskIndex>({})
@@ -444,17 +445,53 @@ export default function Frames({ project }: { project: Project | null }) {
     setBatchItems((status.items || []) as FrameBatchItemView[])
   }, [])
 
+  /** 批次中单个镜头完成后立即取回图片，不等待整个批次结束才刷新画面。 */
+  const refreshCompletedBatchItems = useCallback(async (batchId: string, status: AssetImageBatchStatus) => {
+    const completed = (status.items || []).filter((item) =>
+      item.shot_id && (item.status === 'succeeded' || item.stage === 'done'),
+    ) as FrameBatchItemView[]
+    await Promise.all(completed.map(async (item) => {
+      const refreshKey = `${batchId}:${item.shot_id}`
+      if (refreshedBatchItemsRef.current.has(refreshKey)) return
+      refreshedBatchItemsRef.current.add(refreshKey)
+      try {
+        const images = await api.frameImages(item.shot_id)
+        const hit = images.find((image) => image.frame_type === 'key' && image.file_id)
+        if (!hit?.file_id) {
+          refreshedBatchItemsRef.current.delete(refreshKey)
+          return
+        }
+        setThumbs((current) => ({
+          ...current,
+          [item.shot_id]: { ...current[item.shot_id], key: hit.file_id! },
+        }))
+        if (selRef.current === item.shot_id) {
+          setFrames((current) => ({
+            ...current,
+            key: { ...current.key, busy: false, stage: '', error: '', fileId: hit.file_id },
+          }))
+        }
+      } catch {
+        refreshedBatchItemsRef.current.delete(refreshKey)
+      }
+    }))
+  }, [])
+
   const watchFrameBatch = useCallback(async (batchId: string) => {
     if (watchedBatchIdsRef.current.has(batchId)) return
     watchedBatchIdsRef.current.add(batchId)
     try {
       const finalStatus = await api.pollFrameImageBatch(
         batchId,
-        (status) => applyFrameBatchStatus(batchId, status),
+        (status) => {
+          applyFrameBatchStatus(batchId, status)
+          void refreshCompletedBatchItems(batchId, status)
+        },
         () => cancelledRef.current,
       )
       if (!finalStatus || cancelledRef.current) return
       applyFrameBatchStatus(batchId, finalStatus)
+      await refreshCompletedBatchItems(batchId, finalStatus)
     } catch {
       // 后端重启后内存队列可能不存在；已完成的单项任务仍会从任务表恢复。
       if (!cancelledRef.current) {
@@ -469,7 +506,7 @@ export default function Frames({ project }: { project: Project | null }) {
       api.frameTaskIndex().then(mergeServerFrameTasks).catch(() => {})
       if (selRef.current) loadFrames(selRef.current)
     }
-  }, [applyFrameBatchStatus, loadFrames, mergeServerFrameTasks])
+  }, [applyFrameBatchStatus, loadFrames, mergeServerFrameTasks, refreshCompletedBatchItems])
 
   useEffect(() => {
     if (!project) return

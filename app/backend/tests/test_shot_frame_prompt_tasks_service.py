@@ -29,6 +29,8 @@ from app.models.studio import (
     VFXType,
 )
 from app.services.film.shot_frame_prompt_tasks import (
+    _build_continuity_state_summary,
+    _validate_generated_prompt,
     build_run_args,
     normalize_frame_type,
     persist_frame_prompt,
@@ -236,6 +238,42 @@ def test_action_beat_phase_inference_prefers_trigger_peak_and_aftermath() -> Non
     assert first_item is not None and first_item.text == "听到剪刀咬合声，陆远骤然僵住"
     assert key_item is not None and key_item.text == "陆远抬手捂耳，身体下沉"
     assert last_item is not None and last_item.text == "蹲下后呼吸急促"
+
+
+def test_prompt_quality_rejects_invisible_face_details_and_transition_language() -> None:
+    prompt = (
+        "LS远景平视，主角背对镜头站在走廊左侧，眼角泪痕与瞳孔清晰可见，"
+        "通过视线匹配转场承接前镜；昏暗冷色侧光，前中后景纵深构图，潮湿墙面具有写实电影质感。"
+    )
+
+    issues = _validate_generated_prompt(prompt, {
+        "camera_shot": "LS",
+        "shot_description": '角色当前状态：[{"name": "主角", "visibility": "背面可见，面部不可见"}]',
+        "character_context": "- 主角：克制、警惕",
+    })
+
+    assert any("面部在本镜不可见" in item for item in issues)
+    assert any("大景别无法可靠呈现" in item for item in issues)
+    assert any("混入镜间关系说明" in item for item in issues)
+
+
+def test_continuity_summary_keeps_structured_geometry_and_character_state() -> None:
+    description = "\n".join([
+        "画面描述：周诚站在旧桌左侧。",
+        "固定场景结构：木门固定在右后方，旧桌固定在左墙。",
+        "观看方向：从入口看向木门。",
+        "可视范围：前景入口，中景旧桌，背景木门。",
+        "空间锚点：周诚位于旧桌左侧。",
+        "人物调度与轴线：周诚在画面左侧面向右。",
+        '角色当前状态：[{"name":"周诚","location":"旧桌左侧","posture":"站立"}]',
+        "前镜承接：这一项不属于相邻画面真值摘要。",
+    ])
+
+    summary = _build_continuity_state_summary(description)
+
+    assert "固定场景结构：木门固定在右后方" in summary
+    assert "角色当前状态：" in summary
+    assert "前镜承接" not in summary
 
 
 @pytest.mark.asyncio

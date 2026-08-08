@@ -25,8 +25,20 @@ def _good_shots() -> list[dict]:
         "movement": "STATIC",
         "focal_length": "50mm标准",
         "composition": "三分法",
+        "scene_geometry": "旧宅客厅为狭长矩形，木门固定在右后方，旧桌固定在左侧墙边。",
+        "viewing_direction": "从客厅入口沿纵深看向右后方木门。",
+        "visible_range": "前景为入口门框，中景为旧桌与周诚，背景止于右后方木门。",
         "spatial_anchor": "木门在画面右后方，旧桌在左侧；周诚始终站在桌旁。",
         "screen_direction": "周诚位于画面左侧面向右侧木门，视线落向门把手。",
+        "character_states": [{
+            "name": "周诚·成年时期",
+            "location": "旧桌左侧",
+            "posture": "站立",
+            "facing": "身体朝向右后方木门",
+            "gaze": "门把手",
+            "visibility": "侧脸与上半身清晰可见",
+        }],
+        "transition_from_previous": "直接切换；以旧宅入口为视觉落点；建立场景空间。",
         "narrative_function": "建立旧宅空间与人物警惕状态。",
         "atmosphere": "压抑、安静",
         "sfx": "木门轻响",
@@ -45,6 +57,7 @@ def _good_shots() -> list[dict]:
             "action": "周诚从门口进入，在旧桌左侧停下。",
             "action_beats": ["周诚进入旧宅", "在旧桌左侧停下"],
             "description": "沿客厅纵深看向右后方木门，周诚停在左侧旧桌旁。",
+            "character_states": copy.deepcopy(base["character_states"]),
             "continuity_from_previous": "本场首镜，建立门、旧桌和周诚的空间关系。",
         },
         {
@@ -55,7 +68,9 @@ def _good_shots() -> list[dict]:
             "action": "周诚停在旧桌旁，目光转向右后方木门。",
             "action_beats": ["周诚闻声停住", "目光落向木门"],
             "description": "近景取周诚紧绷的侧脸，右后方木门仍在视线方向内。",
+            "character_states": copy.deepcopy(base["character_states"]),
             "continuity_from_previous": "保持周诚在旧桌左侧的位置，以门响触发视线从前方转向右后方。",
+            "transition_from_previous": "反应切换；匹配木门声与周诚转向门把手的视线；把异响转成悬念。",
             "narrative_function": "用反应镜头把环境异响转成悬念。",
         },
         {
@@ -68,7 +83,9 @@ def _good_shots() -> list[dict]:
             "description": "特写木门把手，背景左侧虚化保留旧桌方向。",
             "continuity_from_previous": "顺着周诚向右的视线切到木门把手，延续同一观看方向。",
             "characters": [],
+            "character_states": [],
             "screen_direction": "沿周诚由左向右的视线看向右后方木门。",
+            "transition_from_previous": "视线匹配；匹配周诚向右的视线与门把手位置；揭示悬念对象。",
             "narrative_function": "给出悬念对象的信息落点。",
         },
     ]
@@ -76,9 +93,10 @@ def _good_shots() -> list[dict]:
 
 def test_reference_rules_are_present_in_generation_and_review_prompts() -> None:
     """防止后续精简提示词时丢失本次引入的核心分镜方法。"""
-    for phrase in ("三阶段", "spatial_anchor", "180 度轴线", "30 度规则", "正反打", "小景别目标占比不少于 40%"):
+    for phrase in ("三阶段", "scene_geometry", "character_states", "transition_from_previous", "180 度轴线", "30 度规则", "正反打"):
         assert phrase in shot_breakdown.SYS
     assert "空间连续性" in shot_breakdown.REVIEW_SYS
+    assert "状态与场景锚定" in shot_breakdown.REVIEW_SYS
     assert "不要添加原文没有的剧情" in shot_breakdown.REVIEW_SYS
 
 
@@ -254,11 +272,78 @@ def test_quality_gate_rejects_disconnected_or_invented_content() -> None:
     assert any("未入库道具" in item for item in issues)
 
 
+def test_quality_gate_rejects_scene_drift_and_unmotivated_character_state_change() -> None:
+    """同场景结构漂移、无动作依据的人物位置变化必须进入定向修正。"""
+    shots = _good_shots()
+    shots[1]["scene_geometry"] = "旧宅客厅为方形，木门固定在左前方，旧桌在右侧。"
+    shots[1]["character_states"][0]["location"] = "木门右侧"
+    shots[1]["action"] = "周诚站在原地，目光落向木门。"
+    shots[1]["action_beats"] = ["周诚闻声停住", "目光落向木门"]
+
+    issues = shot_breakdown._storyboard_quality_issues(
+        shots,
+        script="周诚走进旧宅。身后的门忽然响了。",
+        scene_names={"旧宅客厅"},
+        character_names={"周诚·成年时期"},
+        prop_names=set(),
+    )
+
+    assert any("scene_geometry 不一致" in item for item in issues)
+    assert any("未发生明确动作却改变状态：location" in item for item in issues)
+
+
+def test_continuity_truth_stabilizer_inherits_geometry_and_unchanged_character_state() -> None:
+    """模型措辞漂移不应进入数据库：代码应继承场景首镜结构和前镜未变角色状态。"""
+    shots = _good_shots()
+    shots[1]["scene_geometry"] = "另一套互相矛盾的空间结构"
+    shots[1]["character_states"][0]["location"] = "木门右侧"
+    shots[1]["character_states"][0]["posture"] = "坐下"
+    shots[1]["action"] = "周诚站在原地，目光落向木门。"
+    shots[1]["action_beats"] = ["周诚闻声停住", "目光落向木门"]
+
+    stabilized = shot_breakdown._stabilize_continuity_truth(shots)
+
+    assert stabilized[1]["scene_geometry"] == stabilized[0]["scene_geometry"]
+    assert stabilized[1]["character_states"][0]["location"] == "旧桌左侧"
+    assert stabilized[1]["character_states"][0]["posture"] == "站立"
+
+
+def test_continuity_truth_stabilizer_keeps_explicit_character_movement() -> None:
+    """原文或动作明确发生位移时，角色状态更新必须保留。"""
+    shots = _good_shots()
+    shots[1]["action"] = "周诚从旧桌左侧走到木门旁。"
+    shots[1]["action_beats"] = ["周诚走到木门旁"]
+    shots[1]["character_states"][0]["location"] = "木门旁"
+
+    stabilized = shot_breakdown._stabilize_continuity_truth(shots)
+
+    assert stabilized[1]["character_states"][0]["location"] == "木门旁"
+
+
+def test_quality_gate_requires_visible_character_state_mapping() -> None:
+    """每个可见角色都必须具有逐镜状态，空镜和黑场仍可不含角色状态。"""
+    shots = _good_shots()
+    shots[1]["character_states"] = []
+
+    issues = shot_breakdown._storyboard_quality_issues(
+        shots,
+        script="周诚走进旧宅。身后的门忽然响了。",
+        scene_names={"旧宅客厅"},
+        character_names={"周诚·成年时期"},
+        prop_names=set(),
+    )
+
+    assert any("character_states 未与可见角色逐一对应" in item for item in issues)
+
+
 def test_description_keeps_director_design_for_frame_generation() -> None:
     """结构化镜头设计必须完整进入 ShotDetail.description，而不是只剩动作摘要。"""
     description = shot_breakdown._build_shot_description(_good_shots()[1])
 
     assert "空间锚点：木门在画面右后方" in description
+    assert "固定场景结构：旧宅客厅为狭长矩形" in description
+    assert "角色当前状态：" in description
+    assert "镜间关系：反应切换" in description
     assert "人物调度与轴线：周诚位于画面左侧面向右侧木门" in description
     assert "前镜承接：保持周诚在旧桌左侧的位置" in description
     assert "构图：三分法；50mm标准" in description

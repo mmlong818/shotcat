@@ -239,6 +239,33 @@ def _truncate_for_prompt(value: str | None, *, limit: int = 80) -> str:
     return f"{text[:limit].rstrip()}..."
 
 
+_CONTINUITY_DESCRIPTION_LABELS = (
+    "画面描述",
+    "固定场景结构",
+    "观看方向",
+    "可视范围",
+    "空间锚点",
+    "人物调度与轴线",
+    "角色当前状态",
+)
+
+
+def _build_continuity_state_summary(value: str | None) -> str:
+    """从结构化镜头描述提取连续性真值，避免新增字段被固定长度截断。"""
+    raw = str(value or "").strip()
+    fields: dict[str, str] = {}
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if "：" not in line:
+            continue
+        label, content = line.split("：", 1)
+        if label in _CONTINUITY_DESCRIPTION_LABELS and content.strip():
+            fields[label] = _truncate_for_prompt(content, limit=240)
+    if not fields:
+        return _truncate_for_prompt(raw, limit=220)
+    return "；".join(f"{label}：{fields[label]}" for label in _CONTINUITY_DESCRIPTION_LABELS if label in fields)
+
+
 def _summarize_neighbor_shot(shot: Shot | None) -> tuple[str, str, str]:
     """生成相邻镜头的标题、摘录和状态摘要，供连续性提示词使用。"""
     if shot is None:
@@ -251,9 +278,9 @@ def _summarize_neighbor_shot(shot: Shot | None) -> tuple[str, str, str]:
         _enum_value(getattr(detail, "movement", None)),
     ]
     camera_text = " / ".join(part for part in camera_parts if part)
-    # 分镜拆解会把空间锚点、人物轴线、构图和前镜承接写入 description；
-    # 相邻镜头摘要需保留足够长度，否则后续关键帧只能看到泛化后的标题，无法延续具体空间关系。
-    description = _truncate_for_prompt(getattr(detail, "description", None), limit=220)
+    # 分镜拆解会把场景结构、观看方向、可视范围、角色状态和人物轴线写入 description；
+    # 按字段抽取比截取开头更可靠，否则后部的角色状态会在相邻镜头链中消失。
+    description = _build_continuity_state_summary(getattr(detail, "description", None))
     summary_parts = [
         f"场景：{scene_name}" if scene_name else "",
         f"镜头语言：{camera_text}" if camera_text else "",
@@ -763,6 +790,24 @@ def _validate_generated_prompt(prompt: str, input_dict: dict[str, object]) -> li
         issues.append("结果不应强调普通默认穿着；只有校服、制服、礼服、雨衣、工作服等特殊服装才需要写入")
     if "过肩" in text:
         issues.append("结果不应使用过肩视角；应改为稳定平视或轻侧面双人关系，避免前景肩背遮挡导致图像错乱")
+    relation_terms = [term for term in ("动作匹配", "视线匹配", "视觉重心匹配", "转场", "承接前镜", "切到下一镜") if term in text]
+    if relation_terms:
+        issues.append(f"结果混入镜间关系说明：{'、'.join(relation_terms)}；应只呈现匹配后的静态构图与可见状态")
+    shot_description = str(input_dict.get("shot_description") or "")
+    face_not_visible = any(
+        term in shot_description
+        for term in ("背对镜头", "背面可见", "仅见背影", "面部不可见", "面部被遮挡", '"visibility": "背')
+    )
+    facial_detail_terms = tuple(
+        term for term in ("眼神", "瞳孔", "眼角", "嘴角", "泪痕", "眉头", "面部表情", "脸上露出")
+        if term in text
+    )
+    if face_not_visible and facial_detail_terms:
+        issues.append(f"角色面部在本镜不可见，却描述了面部细节：{'、'.join(facial_detail_terms[:4])}")
+    if str(input_dict.get("camera_shot") or "").upper() in {"LS", "ELS"}:
+        fine_detail_terms = tuple(term for term in ("瞳孔", "眼角", "睫毛", "毛孔", "皮肤纹理", "泪痕", "嘴角细微") if term in text)
+        if fine_detail_terms:
+            issues.append(f"大景别无法可靠呈现这些细微信息：{'、'.join(fine_detail_terms[:4])}；应改用姿态、轮廓或空间关系表达")
     required_groups = {
         "景别或视角": ("景", "近景", "中景", "远景", "全景", "特写", "视角", "俯视", "仰视", "平视", "低机位", "高机位", "广角"),
         "主体外观或姿态": ("外貌", "发型", "姿态", "站", "坐", "侧身", "背影", "表情", "建筑", "空间", "陈设", "道具", "轮廓"),
