@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.contracts.image_generation import ImageResolutionProfile, ImageTargetRatio
 from app.core.db import async_session_maker
-from app.core.task_manager import SqlAlchemyTaskStore
+from app.core.task_manager import DeliveryMode, SqlAlchemyTaskStore, TaskManager
 from app.core.task_manager.types import TaskStatus
 from app.dependencies import get_db
 from app.models.studio import (
@@ -35,7 +35,8 @@ from app.models.studio import (
 )
 from app.schemas.common import ApiResponse, created_response, success_response
 from app.schemas.studio.shots import RenderedShotFramePromptRead, ShotLinkedAssetItem
-from app.api.v1.routes.film.common import TaskCreated
+from app.api.v1.routes.film.common import TaskCreated, _CreateOnlyTask
+from app.models.task_links import GenerationTaskLink
 from app.services.studio.image_task_references import (
     resolve_reference_image_refs_by_file_ids as _resolve_reference_image_refs_by_file_ids_service,
 )
@@ -58,13 +59,17 @@ from app.services.studio.generation.frame import (
 from app.services.film.shot_frame_prompt_tasks import (
     build_run_args as _build_shot_frame_prompt_run_args_service,
     normalize_frame_type as _normalize_frame_type_service,
+    persist_frame_prompt as _persist_frame_prompt_service,
+    read_saved_frame_prompt as _read_saved_frame_prompt_service,
+    relation_type_for_frame as _relation_type_for_frame_service,
     resolve_batch_frame_prompt as _resolve_batch_frame_prompt_service,
 )
+from app.services.studio.shot_status import mark_shot_generating as _mark_shot_generating_service
 from app.services.studio.generation.frame.derive_preview import (
     to_rendered_shot_frame_prompt_read as _to_rendered_shot_frame_prompt_read_service,
 )
 from app.services.studio.image_task_runner import create_image_task_and_link as _create_image_task_and_link_service
-from app.tasks.execute_task import revoke_task_execution
+from app.tasks.execute_task import enqueue_task_execution, revoke_task_execution
 
 
 router = APIRouter()
@@ -280,6 +285,42 @@ async def _load_frame_render_guidance(
         "composition_anchor": str(input_dict.get("composition_anchor") or "").strip(),
         "screen_direction_guidance": str(input_dict.get("screen_direction_guidance") or "").strip(),
     }
+
+
+async def _create_shot_frame_prompt_task_internal(*, shot_id: str, frame_type: ShotFrameType) -> str:
+    frame_type_value = _normalize_frame_type_service(frame_type.value if hasattr(frame_type, "value") else str(frame_type))
+    async with async_session_maker() as db:
+        store = SqlAlchemyTaskStore(db)
+        tm = TaskManager(store=store, strategies={})
+        run_args = await _build_shot_frame_prompt_run_args_service(
+            db,
+            shot_id=shot_id,
+            frame_type=frame_type_value,
+        )
+        task_record = await tm.create(
+            task=_CreateOnlyTask(),
+            mode=DeliveryMode.async_polling,
+            task_kind="shot_frame_prompt",
+            run_args=run_args,
+        )
+        db.add(
+            GenerationTaskLink(
+                task_id=task_record.id,
+                resource_type="prompt",
+                relation_type=_relation_type_for_frame_service(frame_type_value),
+                relation_entity_id=shot_id,
+            )
+        )
+        await _mark_shot_generating_service(db, shot_id=shot_id)
+        await db.commit()
+        enqueue_task_execution(task_record.id)
+        return task_record.id
+
+
+async def _read_task_result(task_id: str) -> dict:
+    async with async_session_maker() as db:
+        record = await SqlAlchemyTaskStore(db).get(task_id)
+        return dict(record.result or {}) if record is not None else {}
 
 
 async def _create_shot_frame_image_task_internal(
@@ -644,12 +685,44 @@ async def _create_frame_batch_item_task(
     resolution_profile: ImageResolutionProfile | None,
     on_task_created: Callable[[str], Awaitable[None]] | None = None,
 ) -> str:
+    frame_type_value = item.frame_type.value if hasattr(item.frame_type, "value") else str(item.frame_type)
     async with async_session_maker() as db:
-        prompt = await _resolve_batch_frame_prompt_service(
+        prompt = await _read_saved_frame_prompt_service(
             db,
             shot_id=item.shot_id,
-            frame_type=item.frame_type.value if hasattr(item.frame_type, "value") else str(item.frame_type),
+            frame_type=frame_type_value,
         )
+
+    if not prompt:
+        prompt_task_id = await _create_shot_frame_prompt_task_internal(
+            shot_id=item.shot_id,
+            frame_type=item.frame_type,
+        )
+        if on_task_created:
+            await on_task_created(prompt_task_id)
+        prompt_status = await _wait_generation_task(prompt_task_id, timeout_s=300.0)
+        if prompt_status == TaskStatus.cancelled:
+            raise RuntimeError("prompt task cancelled")
+        if prompt_status == TaskStatus.succeeded:
+            result = await _read_task_result(prompt_task_id)
+            prompt = str(result.get("prompt") or "").strip()
+
+    if not prompt:
+        async with async_session_maker() as db:
+            prompt = await _resolve_batch_frame_prompt_service(
+                db,
+                shot_id=item.shot_id,
+                frame_type=frame_type_value,
+            )
+            await _persist_frame_prompt_service(
+                db,
+                shot_id=item.shot_id,
+                frame_type=frame_type_value,
+                prompt=prompt,
+            )
+            await db.commit()
+
+    async with async_session_maker() as db:
         image_task_id = await _create_shot_frame_image_task_internal(
             db=db,
             shot_id=item.shot_id,

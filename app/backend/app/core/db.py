@@ -42,6 +42,8 @@ def _configure_sqlite_connection(db_engine: AsyncEngine) -> None:
     def set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
         cursor = dbapi_connection.cursor()
         try:
+            # SQLite 默认不执行外键约束；必须逐连接开启，ON DELETE CASCADE 才会生效。
+            cursor.execute("PRAGMA foreign_keys = ON")
             cursor.execute("PRAGMA busy_timeout = 30000")
             cursor.execute("PRAGMA journal_mode = WAL")
             cursor.execute("PRAGMA synchronous = NORMAL")

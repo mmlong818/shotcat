@@ -59,6 +59,14 @@ async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化，关闭时清理。"""
     # 启动时：供应商注册 + 任务执行器注册（幂等）
     bootstrap_all_registries()
+    # 本机线程随服务进程退出；启动时终结其遗留记录，避免页面永久显示“执行中”。
+    from app.services.worker.task_recovery import reconcile_orphaned_local_tasks
+
+    await reconcile_orphaned_local_tasks()
+    # 旧版 SQLite 未开启外键，删除资产后可能残留图片槽位；启动时一次性修复。
+    from app.services.studio.data_recovery import cleanup_orphaned_entity_image_slots
+
+    await cleanup_orphaned_entity_image_slots()
     # 确保对象存储 bucket 存在（幂等）；存储暂不可用不应阻塞应用启动
     try:
         from anyio import to_thread

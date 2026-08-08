@@ -13,6 +13,7 @@ import {
   type TaskListItem,
 } from '../lib/api'
 import Lightbox from '../Lightbox'
+import { confirmOverwrite } from '../lib/confirmOverwrite'
 
 const FRAMES: { key: FrameType; label: string }[] = [
   { key: 'key', label: '关键帧' },
@@ -26,6 +27,29 @@ type StoredFrameBatch = { projectId: string; batchId: string }
 
 const FRAME_BATCH_STORAGE_KEY = 'shotcat.frames.active-batch'
 const ACTIVE_TASK_STATUSES = new Set(['pending', 'running', 'streaming'])
+
+/** 用服务端时间比较同一画面的任务；时间相同优先采用刚返回的任务。 */
+const latestFrameTask = (current: TaskListItem | undefined, incoming: TaskListItem | undefined) => {
+  if (!current) return incoming
+  if (!incoming) return current
+  const currentTime = current.updated_at_ts ?? current.created_at_ts ?? 0
+  const incomingTime = incoming.updated_at_ts ?? incoming.created_at_ts ?? 0
+  return incomingTime >= currentTime ? incoming : current
+}
+
+/** 合并服务端索引，同时保留尚未被任务列表读到的本地活跃任务。 */
+const mergeFrameTaskIndexes = (current: FrameTaskIndex, incoming: FrameTaskIndex): FrameTaskIndex => {
+  const merged: FrameTaskIndex = {}
+  for (const [shotId, frameTypes] of Object.entries(incoming)) merged[shotId] = { ...frameTypes }
+  for (const [shotId, frameTypes] of Object.entries(current)) {
+    for (const frameType of FRAMES.map((frame) => frame.key)) {
+      const task = frameTypes[frameType]
+      if (!task || !ACTIVE_TASK_STATUSES.has(task.status)) continue
+      ;(merged[shotId] ||= {})[frameType] = latestFrameTask(task, merged[shotId]?.[frameType])
+    }
+  }
+  return merged
+}
 
 const taskStage = (task: Pick<TaskListItem, 'status' | 'progress'>) =>
   task.status === 'pending' ? '等待生成…' : `生成画面… ${task.progress || 0}%`
@@ -92,14 +116,29 @@ export default function Frames({ project }: { project: Project | null }) {
   const ownedTaskIdsRef = useRef(new Set<string>())
   const resumedTaskIdsRef = useRef(new Set<string>())
   const watchedBatchIdsRef = useRef(new Set<string>())
+  const frameTasksRef = useRef<FrameTaskIndex>({})
   useEffect(() => { cancelledRef.current = false; return () => { cancelledRef.current = true } }, [])
+
+  /** 同步更新 state 与 ref，让镜头切换无需等待下一轮网络读取即可恢复状态。 */
+  const updateFrameTasks = useCallback((updater: (current: FrameTaskIndex) => FrameTaskIndex) => {
+    setFrameTasks((current) => {
+      const next = updater(current)
+      frameTasksRef.current = next
+      return next
+    })
+  }, [])
+
+  /** 服务端结果是事实来源，但提交后尚未可见的活跃任务不能被一次读取清掉。 */
+  const mergeServerFrameTasks = useCallback((incoming: FrameTaskIndex) => {
+    updateFrameTasks((current) => mergeFrameTaskIndexes(current, incoming))
+  }, [updateFrameTasks])
 
   useEffect(() => {
     if (!project) return
     api.entities('character', project.id).then(setCast).catch(() => {})
     api.entities('scene', project.id).then(setScenes).catch(() => {})
     api.frameIndex().then(setThumbs).catch(() => {})
-    api.frameTaskIndex().then(setFrameTasks).catch(() => {})
+    api.frameTaskIndex().then(mergeServerFrameTasks).catch(() => {})
     api.chapters(project.id).then((cs) => {
       setChapters(cs)
       if (!cs.length) return
@@ -126,7 +165,7 @@ export default function Frames({ project }: { project: Project | null }) {
         })
       })
     }).catch(() => {})
-  }, [project?.id, params])
+  }, [project?.id, params, mergeServerFrameTasks])
 
   const resumeFrameTask = useCallback(async (shotId: string, ft: FrameType, task: TaskListItem) => {
     if (ownedTaskIdsRef.current.has(task.task_id) || resumedTaskIdsRef.current.has(task.task_id)) return
@@ -139,12 +178,13 @@ export default function Frames({ project }: { project: Project | null }) {
       const status = await api.pollTask(
         task.task_id,
         (progress) => {
-          if (selRef.current !== shotId) return
-          setFrames((prev) => ({
-            ...prev,
-            [ft]: { ...prev[ft], busy: true, stage: `生成画面… ${progress}%` },
-          }))
-          setFrameTasks((current) => ({
+          if (selRef.current === shotId) {
+            setFrames((prev) => ({
+              ...prev,
+              [ft]: { ...prev[ft], busy: true, stage: `生成画面… ${progress}%` },
+            }))
+          }
+          updateFrameTasks((current) => ({
             ...current,
             [shotId]: {
               ...current[shotId],
@@ -153,10 +193,10 @@ export default function Frames({ project }: { project: Project | null }) {
           }))
         },
         120,
-        () => cancelledRef.current || selRef.current !== shotId,
+        () => cancelledRef.current,
       )
-      if (cancelledRef.current || selRef.current !== shotId) return
-      setFrameTasks((current) => ({
+      if (cancelledRef.current) return
+      updateFrameTasks((current) => ({
         ...current,
         [shotId]: { ...current[shotId], [ft]: { ...task, ...status } },
       }))
@@ -168,21 +208,25 @@ export default function Frames({ project }: { project: Project | null }) {
           ...current,
           [shotId]: { ...current[shotId], [ft]: hit.file_id! },
         }))
-        setFrames((prev) => ({
-          ...prev,
-          [ft]: { ...prev[ft], busy: false, stage: '', error: '', fileId: hit.file_id },
-        }))
+        if (selRef.current === shotId) {
+          setFrames((prev) => ({
+            ...prev,
+            [ft]: { ...prev[ft], busy: false, stage: '', error: '', fileId: hit.file_id },
+          }))
+        }
       } else {
         const result = await api.taskResult(task.task_id).catch(() => null)
-        setFrames((prev) => ({
-          ...prev,
-          [ft]: {
-            ...prev[ft],
-            busy: false,
-            stage: '',
-            error: result?.error || (status.status === 'cancelled' ? '生成已停止' : '生成失败'),
-          },
-        }))
+        if (selRef.current === shotId) {
+          setFrames((prev) => ({
+            ...prev,
+            [ft]: {
+              ...prev[ft],
+              busy: false,
+              stage: '',
+              error: result?.error || (status.status === 'cancelled' ? '生成已停止' : '生成失败'),
+            },
+          }))
+        }
       }
     } catch (error: any) {
       if (selRef.current === shotId) {
@@ -194,25 +238,32 @@ export default function Frames({ project }: { project: Project | null }) {
     } finally {
       resumedTaskIdsRef.current.delete(task.task_id)
     }
-  }, [])
+  }, [updateFrameTasks])
 
   // 选中镜头 → 同时载入已有图片和后端持久化的最新生图任务。
   const loadFrames = useCallback(async (shotId: string) => {
-    setFrames({ first: emptyFrame(), key: emptyFrame(), last: emptyFrame() })
+    const knownTask = frameTasksRef.current[shotId]?.key
+    const initial: Record<FrameType, FrameState> = {
+      first: emptyFrame(), key: emptyFrame(), last: emptyFrame(),
+    }
+    if (knownTask && ACTIVE_TASK_STATUSES.has(knownTask.status)) {
+      initial.key = { ...initial.key, busy: true, stage: taskStage(knownTask) }
+    }
+    setFrames(initial)
     try {
       const [imgs, taskIndex] = await Promise.all([
         api.frameImages(shotId),
         api.frameTaskIndex().catch(() => null),
       ])
       if (selRef.current !== shotId) return // 已切换镜头，丢弃过期响应
-      if (taskIndex) setFrameTasks(taskIndex)
+      if (taskIndex) mergeServerFrameTasks(taskIndex)
       const next: Record<FrameType, FrameState> = {
         first: emptyFrame(), key: emptyFrame(), last: emptyFrame(),
       }
       for (const image of imgs) {
         if (image.frame_type in next) next[image.frame_type] = { ...emptyFrame(), fileId: image.file_id }
       }
-      const task = taskIndex?.[shotId]?.key
+      const task = latestFrameTask(knownTask, taskIndex?.[shotId]?.key)
       if (task && ACTIVE_TASK_STATUSES.has(task.status)) {
         next.key = { ...next.key, busy: true, stage: taskStage(task), error: '' }
       }
@@ -234,7 +285,7 @@ export default function Frames({ project }: { project: Project | null }) {
     } catch {
       // 页面仍可继续使用；下一次切换镜头会重试恢复。
     }
-  }, [resumeFrameTask])
+  }, [mergeServerFrameTasks, resumeFrameTask])
 
   useEffect(() => {
     if (!sel) return
@@ -250,6 +301,11 @@ export default function Frames({ project }: { project: Project | null }) {
   async function generate(ft: FrameType) {
     if (!sel) return
     if (frames[ft].busy) return // 该帧正在生成，防重入
+    if (frames[ft].fileId && !confirmOverwrite({
+      step: `重新生成${FRAMES.find((frame) => frame.key === ft)?.label || '镜头画面'}`,
+      replaces: ['当前镜头图片', '总览页中展示的对应画面'],
+      consequence: '原画面将不再作为当前结果使用，已经完成的其他镜头不受影响。',
+    })) return
     const shotId = sel.id
     const shot = sel
     // 已保存或正在编辑的提示词是用户可控的唯一来源；参考图约束只临时用于本次生图。
@@ -291,14 +347,22 @@ export default function Frames({ project }: { project: Project | null }) {
       const itask = await api.createFrameImageTask(shotId, ft, finalPrompt, ratio, refs)
       imageTaskId = itask
       ownedTaskIdsRef.current.add(itask)
-      const pendingTask: TaskListItem = { task_id: itask, status: 'pending', progress: 0, created_at_ts: Date.now() / 1000 }
-      setFrameTasks((current) => ({
+      const pendingTask: TaskListItem = {
+        task_id: itask,
+        task_kind: 'image_generation',
+        status: 'pending',
+        progress: 0,
+        created_at_ts: Date.now() / 1000,
+        relation_type: 'shot_frame_image',
+        navigate_relation_entity_id: shotId,
+      }
+      updateFrameTasks((current) => ({
         ...current,
         [shotId]: { ...current[shotId], [ft]: pendingTask },
       }))
       const is = await api.pollTask(itask, (p) => {
         if (alive()) setFrame(ft, { stage: `生成画面… ${p}%` })
-        setFrameTasks((current) => ({
+        updateFrameTasks((current) => ({
           ...current,
           [shotId]: {
             ...current[shotId],
@@ -306,7 +370,7 @@ export default function Frames({ project }: { project: Project | null }) {
           },
         }))
       }, 120, cancelled)
-      setFrameTasks((current) => ({
+      updateFrameTasks((current) => ({
         ...current,
         [shotId]: { ...current[shotId], [ft]: { ...(current[shotId]?.[ft] || pendingTask), ...is } },
       }))
@@ -328,7 +392,7 @@ export default function Frames({ project }: { project: Project | null }) {
 
     } catch (e: any) {
       if (imageTaskId) {
-        setFrameTasks((current) => ({
+        updateFrameTasks((current) => ({
           ...current,
           [shotId]: {
             ...current[shotId],
@@ -375,10 +439,10 @@ export default function Frames({ project }: { project: Project | null }) {
       setBatch(null)
       setBatchItemStatuses({})
       api.frameIndex().then(setThumbs).catch(() => {})
-      api.frameTaskIndex().then(setFrameTasks).catch(() => {})
+      api.frameTaskIndex().then(mergeServerFrameTasks).catch(() => {})
       if (selRef.current) loadFrames(selRef.current)
     }
-  }, [applyFrameBatchStatus, loadFrames])
+  }, [applyFrameBatchStatus, loadFrames, mergeServerFrameTasks])
 
   useEffect(() => {
     if (!project) return

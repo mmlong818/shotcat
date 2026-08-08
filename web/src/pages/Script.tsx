@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type TextareaHTMLAttributes } from 'react'
 import { api, type Chapter, type Project } from '../lib/api'
+import { usePipelineJobActive } from '../TaskActivity'
+import { confirmOverwrite } from '../lib/confirmOverwrite'
 
 // 随内容自动撑高的剧本编辑区（整页滚动，不在小框里滚）。
 // 优先用原生 field-sizing:content（高度精确贴合内容，无内部滚动，滚轮正常穿透）；
@@ -25,6 +27,7 @@ export default function Script({ project }: { project: Project | null }) {
   const [saving, setSaving] = useState('')
   const [pipe, setPipe] = useState('')
   const [msg, setMsg] = useState('')
+  const pipelineActive = usePipelineJobActive(project?.id, 'extract-setup')
 
   const load = () => {
     if (!project) return
@@ -65,7 +68,15 @@ export default function Script({ project }: { project: Project | null }) {
     catch (e: any) { setMsg(e?.message || '保存失败') } finally { setSaving('') }
   }
   async function extract() {
-    if (!project || pipe) return
+    if (!project || pipe || pipelineActive) return
+    const existingSetup = await Promise.all(
+      ['character', 'scene', 'prop', 'costume'].map((type) => api.entities(type, project.id).catch(() => [])),
+    )
+    if (existingSetup.some((items) => items.length > 0) && !confirmOverwrite({
+      step: '从剧本抽取设定',
+      replaces: ['设定页中同名角色、场景、道具和服装的描述', '下一步锁定视觉词典时使用的设定基础'],
+      consequence: '已有造型图、分镜和画面不会自动同步，新设定确认后需要按顺序重做后续步骤。',
+    })) return
     setPipe('x'); setMsg('抽取设定中…（读全剧本，约 1 分钟）')
     try {
       const j = await api.runPipeline('extract-setup', project.id)
@@ -81,8 +92,8 @@ export default function Script({ project }: { project: Project | null }) {
       <div className="work-head">
         <h1>剧本</h1>
         <div className="spacer" />
-        <button className="btn primary" disabled={!!pipe || chapters.length === 0} onClick={extract}>
-          {pipe ? '抽取设定中…' : '从剧本抽取设定'}
+        <button className="btn primary" disabled={!!pipe || pipelineActive || chapters.length === 0} onClick={extract}>
+          {pipe || pipelineActive ? '抽取设定中…' : '从剧本抽取设定'}
         </button>
       </div>
       {msg && <div className="sc-msg">{msg}</div>}

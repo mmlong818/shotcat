@@ -25,6 +25,21 @@ async function post<T = any>(path: string, body: any): Promise<T> {
   return (j?.data ?? j) as T
 }
 
+// PUT：用于保存单例配置，错误信息沿用后端的人类可读 message。
+async function put<T = any>(path: string, body: any): Promise<T> {
+  const r = await fetch(BASE + path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  let j: any = null
+  try {
+    j = await r.json()
+  } catch {}
+  if (!r.ok) throw new Error(j?.message || `PUT ${path} ${r.status}`)
+  return (j?.data ?? j) as T
+}
+
 export interface Project { id: string; name: string; description?: string; style?: string; visual_style?: string; progress?: number; default_video_ratio?: string }
 export interface Chapter { id: string; index: number; title: string; project_id: string; raw_text?: string }
 export interface Shot {
@@ -56,9 +71,14 @@ export interface EntityDeleteResult {
 export interface FrameImage { id: number; shot_detail_id: string; frame_type: 'first' | 'key' | 'last'; file_id: string | null }
 export interface TaskStatus { task_id: string; status: string; progress: number }
 export interface TaskListItem extends TaskStatus {
+  task_kind: string
+  cancel_requested?: boolean
+  relation_type?: string | null
   created_at_ts?: number | null
   updated_at_ts?: number | null
   relation_entity_id?: string | null
+  resource_type?: string | null
+  navigate_relation_type?: string | null
   navigate_relation_entity_id?: string | null
 }
 export type FrameTaskIndex = Record<string, Partial<Record<FrameType, TaskListItem>>>
@@ -77,6 +97,87 @@ export interface AssetImageBatchStatus {
   items: any[]
 }
 export type FrameType = 'first' | 'key' | 'last'
+
+export type PipelineStep = 'extract-setup' | 'visual-dict' | 'shot-breakdown' | 'unit-gen'
+export interface PipelineJobRecord {
+  jobId: string
+  projectId: string
+  step: PipelineStep
+  createdAt: number
+}
+export interface PipelineJobStatus {
+  status: 'queued' | 'running' | 'cancelling' | 'cancelled' | 'done' | 'error'
+  log: string
+  error: string
+  cancel_requested?: boolean
+}
+
+export const PIPELINE_JOB_EVENT = 'shotcat:pipeline-jobs-changed'
+const PIPELINE_JOB_STORAGE_KEY = 'shotcat.pipeline.jobs.v1'
+
+export function readPipelineJobs(): PipelineJobRecord[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(PIPELINE_JOB_STORAGE_KEY) || '[]')
+    return Array.isArray(value)
+      ? value.filter((job): job is PipelineJobRecord => Boolean(job?.jobId && job?.projectId && job?.step))
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writePipelineJobs(jobs: PipelineJobRecord[]) {
+  localStorage.setItem(PIPELINE_JOB_STORAGE_KEY, JSON.stringify(jobs))
+  window.dispatchEvent(new Event(PIPELINE_JOB_EVENT))
+}
+
+export function rememberPipelineJob(job: PipelineJobRecord) {
+  const jobs = readPipelineJobs().filter((item) =>
+    item.jobId !== job.jobId && !(item.projectId === job.projectId && item.step === job.step),
+  )
+  writePipelineJobs([...jobs, job])
+}
+
+export function forgetPipelineJob(jobId: string) {
+  const jobs = readPipelineJobs()
+  const next = jobs.filter((job) => job.jobId !== jobId)
+  if (next.length !== jobs.length) writePipelineJobs(next)
+}
+
+export function findPipelineJob(projectId: string | undefined, step: PipelineStep) {
+  return projectId ? readPipelineJobs().find((job) => job.projectId === projectId && job.step === step) ?? null : null
+}
+
+export interface ModelSetupCapability {
+  category: 'text' | 'image'
+  ready: boolean
+  reason?: string | null
+  message: string
+  model_id?: string | null
+  model_name?: string | null
+  provider_id?: string | null
+  provider_key?: string | null
+  provider_name?: string | null
+  has_api_key: boolean
+}
+export interface InitialModelSetupStatus {
+  ready: boolean
+  text: ModelSetupCapability
+  image: ModelSetupCapability
+}
+export interface SupportedModelProvider {
+  key: string
+  display_name: string
+  supported_categories: ('text' | 'image' | 'video')[]
+  default_base_url?: string | null
+  requires_api_key: boolean
+}
+export interface InitialModelConnection {
+  provider_key: string
+  base_url: string
+  api_key: string
+  model_name: string
+}
 
 interface Paged<T> { items: T[]; pagination: { total: number; max_page?: number } }
 
@@ -98,6 +199,11 @@ const isGenericCrowdCharacter = (name: string | undefined) => {
 }
 
 export const api = {
+  initialModelSetup: () => get<InitialModelSetupStatus>('/llm/initial-setup'),
+  supportedModelProviders: (category: 'text' | 'image') =>
+    get<SupportedModelProvider[]>(`/llm/providers/supported?category=${category}`),
+  saveInitialModelSetup: (body: { text?: InitialModelConnection; image?: InitialModelConnection }) =>
+    put<InitialModelSetupStatus>('/llm/initial-setup', body),
   projects: () => get<Paged<Project>>('/studio/projects?page_size=100').then((d) => d.items),
   createProject: (body: { name: string; style: string; visual_style: string; default_video_ratio?: string; description?: string }) => {
     const id = 'proj_' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36)
@@ -313,6 +419,13 @@ export const api = {
   },
   taskStatus: (taskId: string) => get<TaskStatus>(`/film/tasks/${taskId}/status`),
   taskResult: (taskId: string) => get<{ status: string; result: any; error: string }>(`/film/tasks/${taskId}/result`),
+  cancelTask: (taskId: string) => post<{ task_id: string; status: string; cancel_requested: boolean; effective_immediately: boolean }>(
+    `/film/tasks/${taskId}/cancel`,
+    { reason: '用户从全局任务状态停止' },
+  ),
+  activeTasks: () => get<Paged<TaskListItem>>(
+    '/film/tasks?statuses=pending&statuses=running&statuses=streaming&recent_seconds=0&page=1&page_size=100',
+  ).then((d) => d.items),
 
   // —— 造型图生成链（角色/演员/场景/道具/服装）——
   entityImages: (type: string, id: string) =>
@@ -374,25 +487,60 @@ export const api = {
     } catch {
       throw new Error('pipeline 服务连不上（bridge/pipeline_server.py 未启动？端口 5280）')
     }
+    let payload: any
     try {
-      return await r.json()
+      payload = await r.json()
     } catch {
       throw new Error('pipeline 服务未启动（cd bridge && python pipeline_server.py）')
     }
+    if (!r.ok) throw new Error(payload?.error || `pipeline 请求失败 ${r.status}`)
+    return payload
   },
-  runPipeline: (step: 'extract-setup' | 'visual-dict' | 'shot-breakdown' | 'unit-gen', pid: string) =>
-    api._pipelineJson(`/pipeline/${step}`, {
+  pipelineJobStatus: (jobId: string) => api._pipelineJson(`/pipeline/jobs/${jobId}`) as Promise<PipelineJobStatus>,
+  cancelPipelineJob: (jobId: string) => api._pipelineJson(`/pipeline/jobs/${jobId}/cancel`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  }) as Promise<PipelineJobStatus>,
+  async runPipeline(step: PipelineStep, pid: string) {
+    const existing = findPipelineJob(pid, step)
+    if (existing) {
+      try {
+        const state = await api.pipelineJobStatus(existing.jobId)
+        if (state.status === 'queued' || state.status === 'running' || state.status === 'cancelling') return existing.jobId
+        forgetPipelineJob(existing.jobId)
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('job not found')) {
+          forgetPipelineJob(existing.jobId)
+        } else {
+          // 服务暂时不可达时保留原任务，避免重复提交同一步骤。
+          return existing.jobId
+        }
+      }
+    }
+    return api._pipelineJson(`/pipeline/${step}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pid }),
     }).then((j) => {
       if (!j.job_id) throw new Error(j.error || 'pipeline 启动失败(服务未起?)')
-      return j.job_id as string
-    }),
+      const jobId = j.job_id as string
+      rememberPipelineJob({ jobId, projectId: pid, step, createdAt: Date.now() })
+      return jobId
+    })
+  },
   async pollPipeline(jobId: string, tries = 200, isCancelled?: () => boolean): Promise<{ status: string; log: string; error: string }> {
     for (let i = 0; i < tries; i++) {
       if (isCancelled?.()) return { status: 'cancelled', log: '', error: '' }
-      const j = await api._pipelineJson(`/pipeline/jobs/${jobId}`)
-      if (j.status === 'done') return j
-      if (j.status === 'error') throw new Error(j.error || '生成失败')
+      const j = await api.pipelineJobStatus(jobId)
+      if (j.status === 'done') {
+        forgetPipelineJob(jobId)
+        return j
+      }
+      if (j.status === 'error') {
+        forgetPipelineJob(jobId)
+        throw new Error(j.error || '生成失败')
+      }
+      if (j.status === 'cancelled') {
+        forgetPipelineJob(jobId)
+        throw new Error('任务已取消')
+      }
       await sleep(3000)
     }
     throw new Error('pipeline 超时')

@@ -8,6 +8,8 @@ import Lobby from './pages/Lobby'
 import Overview from './pages/Overview'
 import Script from './pages/Script'
 import Gallery from './pages/Gallery'
+import ModelSetupGate from './ModelSetupGate'
+import TaskActivity from './TaskActivity'
 
 const STAGES = [
   { key: 'script', label: '剧本', to: '/script' },
@@ -140,6 +142,8 @@ export default function App() {
 
   return (
     <div className="app">
+      <ModelSetupGate />
+      <TaskActivity />
       <div className="topbar">
         <div className="brand" style={{ cursor: 'pointer' }} onClick={() => navigate('/projects')} title="返回作品库">
           <span className="dot" />

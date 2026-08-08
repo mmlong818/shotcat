@@ -31,6 +31,9 @@ from app.models.studio import (
 from app.services.film.shot_frame_prompt_tasks import (
     build_run_args,
     normalize_frame_type,
+    persist_frame_prompt,
+    prompt_field_for_frame,
+    read_saved_frame_prompt,
     relation_type_for_frame,
     resolve_batch_frame_prompt,
 )
@@ -316,6 +319,26 @@ async def test_resolve_batch_frame_prompt_falls_back_without_text_model() -> Non
         assert prompt.startswith("MS，镜头一")
         assert "狭长走廊里，主角谨慎前行并回头确认身后动静。" in prompt
         assert "角色推门而入。" in prompt
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_persist_frame_prompt_round_trip() -> None:
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+
+        saved = await persist_frame_prompt(
+            db,
+            shot_id="s1",
+            frame_type="key",
+            prompt="  新生成的关键帧提示词  ",
+        )
+        await db.commit()
+
+        assert saved == "新生成的关键帧提示词"
+        assert await read_saved_frame_prompt(db, shot_id="s1", frame_type="key") == saved
+        assert prompt_field_for_frame("key") == "key_frame_prompt"
     await engine.dispose()
 
 

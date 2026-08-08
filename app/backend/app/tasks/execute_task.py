@@ -58,7 +58,12 @@ def revoke_task_execution(task_id: str, *, terminate: bool = True, signal: str =
         row = db.get(GenerationTask, task_id)
         if row is None:
             return False
-        if (row.executor_type or "").strip() != "celery":
+        executor_type = (row.executor_type or "").strip()
+        if executor_type == "local-thread":
+            # Python 线程不能被强制终止；任务执行器会在结果写入前检查取消状态，
+            # 因此可立即把数据库状态收口，避免界面长期停留在“停止中”。
+            return True
+        if executor_type != "celery":
             return False
         executor_task_id = (row.executor_task_id or "").strip()
         if not executor_task_id:

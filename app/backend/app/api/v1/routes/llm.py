@@ -10,6 +10,8 @@ from app.models.llm import ModelCategoryKey
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, success_response
 from app.schemas.llm import (
     ImageGenerationOptionsRead,
+    InitialModelSetupRequest,
+    InitialModelSetupStatusRead,
     ModelCreate,
     ModelRead,
     ModelSettingsRead,
@@ -21,6 +23,7 @@ from app.schemas.llm import (
     VideoGenerationOptionsRead,
     ProviderUpdate,
 )
+from app.services.llm.initial_setup import get_initial_model_setup_status, save_initial_model_setup
 from app.services.llm.manage import (
     create_model as create_model_service,
     create_provider as create_provider_service,
@@ -49,6 +52,35 @@ MAX_PAGE_SIZE = 100
 
 
 # ---------- Provider ----------
+
+
+@router.get(
+    "/initial-setup",
+    response_model=ApiResponse[InitialModelSetupStatusRead],
+    summary="检查工作台首次启动所需的模型配置",
+)
+async def get_initial_setup(
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[InitialModelSetupStatusRead]:
+    """检查文字和图片默认模型、供应商及 Key 是否完整。"""
+
+    result = await get_initial_model_setup_status(db)
+    return success_response(result)
+
+
+@router.put(
+    "/initial-setup",
+    response_model=ApiResponse[InitialModelSetupStatusRead],
+    summary="保存工作台首次启动模型配置",
+)
+async def update_initial_setup(
+    body: InitialModelSetupRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[InitialModelSetupStatusRead]:
+    """在一个事务中保存文字和图片连接，并更新对应默认模型。"""
+
+    result = await save_initial_model_setup(db, body=body)
+    return success_response(result)
 
 
 @router.get(

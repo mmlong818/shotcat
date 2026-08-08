@@ -89,8 +89,8 @@ def test_wait_generation_task_uses_fresh_session_between_polls(monkeypatch) -> N
     assert len(sessions) == 2
 
 
-def test_frame_batch_creates_image_task_from_local_prompt(monkeypatch) -> None:
-    """批量关键帧不得依赖文本模型任务，必须直接使用本地解析出的提示词。"""
+def test_frame_batch_uses_saved_prompt_without_regenerating(monkeypatch) -> None:
+    """已有镜头提示词时直接用于生图，不覆盖人工确认的内容。"""
 
     class _SessionContext:
         async def __aenter__(self):
@@ -99,21 +99,25 @@ def test_frame_batch_creates_image_task_from_local_prompt(monkeypatch) -> None:
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    calls: dict[str, object] = {}
+    calls: dict[str, object] = {"created_tasks": []}
 
-    async def _resolve_prompt(_db, *, shot_id, frame_type):
+    async def _read_saved_prompt(_db, *, shot_id, frame_type):
         calls["prompt_source"] = (shot_id, frame_type)
-        return "MS，镜头标题，镜头内容"
+        return "已保存的关键帧提示词"
+
+    async def _create_prompt_task(**_kwargs):
+        raise AssertionError("已有提示词时不应创建文本任务")
 
     async def _create_image_task(*, prompt, **_kwargs):
         calls["image_prompt"] = prompt
         return "image-task-1"
 
     async def _on_task_created(task_id: str):
-        calls["created_task_id"] = task_id
+        calls["created_tasks"].append(task_id)
 
     monkeypatch.setattr(route, "async_session_maker", lambda: _SessionContext())
-    monkeypatch.setattr(route, "_resolve_batch_frame_prompt_service", _resolve_prompt)
+    monkeypatch.setattr(route, "_read_saved_frame_prompt_service", _read_saved_prompt)
+    monkeypatch.setattr(route, "_create_shot_frame_prompt_task_internal", _create_prompt_task)
     monkeypatch.setattr(route, "_create_shot_frame_image_task_internal", _create_image_task)
 
     import asyncio
@@ -131,8 +135,69 @@ def test_frame_batch_creates_image_task_from_local_prompt(monkeypatch) -> None:
     assert task_id == "image-task-1"
     assert calls == {
         "prompt_source": ("shot-1", "key"),
-        "image_prompt": "MS，镜头标题，镜头内容",
-        "created_task_id": "image-task-1",
+        "image_prompt": "已保存的关键帧提示词",
+        "created_tasks": ["image-task-1"],
+    }
+
+
+def test_frame_batch_generates_and_uses_missing_prompt(monkeypatch) -> None:
+    """提示词为空时先运行文本模型任务，再用其结果创建图片任务。"""
+
+    class _SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    calls: dict[str, object] = {"created_tasks": []}
+
+    async def _read_saved_prompt(_db, **_kwargs):
+        return ""
+
+    async def _create_prompt_task(**_kwargs):
+        return "prompt-task-1"
+
+    async def _wait_task(task_id, **_kwargs):
+        calls["waited_task"] = task_id
+        return route.TaskStatus.succeeded
+
+    async def _read_result(task_id):
+        calls["result_task"] = task_id
+        return {"prompt": "文本模型生成的关键帧提示词"}
+
+    async def _create_image_task(*, prompt, **_kwargs):
+        calls["image_prompt"] = prompt
+        return "image-task-1"
+
+    async def _on_task_created(task_id: str):
+        calls["created_tasks"].append(task_id)
+
+    monkeypatch.setattr(route, "async_session_maker", lambda: _SessionContext())
+    monkeypatch.setattr(route, "_read_saved_frame_prompt_service", _read_saved_prompt)
+    monkeypatch.setattr(route, "_create_shot_frame_prompt_task_internal", _create_prompt_task)
+    monkeypatch.setattr(route, "_wait_generation_task", _wait_task)
+    monkeypatch.setattr(route, "_read_task_result", _read_result)
+    monkeypatch.setattr(route, "_create_shot_frame_image_task_internal", _create_image_task)
+
+    import asyncio
+
+    task_id = asyncio.run(
+        route._create_frame_batch_item_task(
+            route.FrameImageBatchItem(shot_id="shot-1", frame_type="key"),
+            model_id=None,
+            target_ratio="9:16",
+            resolution_profile="standard",
+            on_task_created=_on_task_created,
+        )
+    )
+
+    assert task_id == "image-task-1"
+    assert calls == {
+        "created_tasks": ["prompt-task-1", "image-task-1"],
+        "waited_task": "prompt-task-1",
+        "result_task": "prompt-task-1",
+        "image_prompt": "文本模型生成的关键帧提示词",
     }
 
 

@@ -106,6 +106,30 @@ def _seed_image_model(db: _FakeLlmDB, *, provider_id: str = "p-image", model_id:
     db.model_settings[1] = ModelSettings(id=1, default_image_model_id=model_id)
 
 
+def _seed_ready_text_and_image(db: _FakeLlmDB) -> None:
+    """写入一套完整配置，供启动状态接口验证。"""
+
+    text_provider = _seed_provider(db, "p-text-ready")
+    image_provider = _seed_provider(db, "p-image-ready")
+    db.models["m-text-ready"] = Model(
+        id="m-text-ready",
+        name="gpt-5.6-sol",
+        category=ModelCategoryKey.text,
+        provider_id=text_provider.id,
+    )
+    db.models["m-image-ready"] = Model(
+        id="m-image-ready",
+        name="gpt-image-2",
+        category=ModelCategoryKey.image,
+        provider_id=image_provider.id,
+    )
+    db.model_settings[1] = ModelSettings(
+        id=1,
+        default_text_model_id="m-text-ready",
+        default_image_model_id="m-image-ready",
+    )
+
+
 def _override_db(db: _FakeLlmDB):
     async def _get_db() -> AsyncGenerator[_FakeLlmDB, None]:
         yield db
@@ -224,6 +248,75 @@ def test_list_supported_providers_can_filter_by_category(client: TestClient) -> 
     assert isinstance(body["data"], list)
     for item in body["data"]:
         assert "video" in item["supported_categories"]
+
+
+def test_initial_setup_status_reports_missing_models_without_secrets(client: TestClient) -> None:
+    db = _FakeLlmDB()
+    llm_app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.get("/api/v1/llm/initial-setup")
+    finally:
+        llm_app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["ready"] is False
+    assert data["text"]["reason"] == "missing_default_model"
+    assert data["image"]["reason"] == "missing_default_model"
+    assert "api_key" not in data["text"]
+    assert "api_key" not in data["image"]
+
+
+def test_initial_setup_status_accepts_separate_text_and_image_models(client: TestClient) -> None:
+    db = _FakeLlmDB()
+    _seed_ready_text_and_image(db)
+    llm_app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.get("/api/v1/llm/initial-setup")
+    finally:
+        llm_app.dependency_overrides.clear()
+
+    data = response.json()["data"]
+    assert response.status_code == 200
+    assert data["ready"] is True
+    assert data["text"]["model_name"] == "gpt-5.6-sol"
+    assert data["image"]["model_name"] == "gpt-image-2"
+    assert data["text"]["has_api_key"] is True
+    assert data["image"]["has_api_key"] is True
+
+
+def test_initial_setup_saves_text_and_image_connections_independently(client: TestClient) -> None:
+    db = _FakeLlmDB()
+    llm_app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.put(
+            "/api/v1/llm/initial-setup",
+            json={
+                "text": {
+                    "provider_key": "aliyun_bailian",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "api_key": "text-secret",
+                    "model_name": "qwen3.7-max",
+                },
+                "image": {
+                    "provider_key": "openai",
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key": "image-secret",
+                    "model_name": "gpt-image-2",
+                },
+            },
+        )
+    finally:
+        llm_app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["ready"] is True
+    assert data["text"]["provider_key"] == "aliyun_bailian"
+    assert data["image"]["provider_key"] == "openai"
+    assert data["text"]["provider_id"] != data["image"]["provider_id"]
+    assert "text-secret" not in response.text
+    assert "image-secret" not in response.text
 
 
 def test_get_video_generation_options_returns_ratio_capability(client: TestClient) -> None:

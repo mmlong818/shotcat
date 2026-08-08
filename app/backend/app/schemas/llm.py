@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.llm import LogLevel, ModelCategoryKey, ProviderStatus
 
@@ -153,3 +153,54 @@ class ModelSettingsRead(ModelSettingsBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int = Field(..., description="设置行 ID（通常为 1）")
+
+
+class ModelCapabilitySetupRead(BaseModel):
+    """单类模型的启动可用状态；只返回是否存在 Key，不返回 Key 本身。"""
+
+    category: ModelCategoryKey = Field(..., description="模型类别")
+    ready: bool = Field(..., description="该类别是否已具备可用模型和供应商")
+    reason: str | None = Field(None, description="未就绪原因代码")
+    message: str = Field(..., description="面向用户的状态说明")
+    model_id: str | None = Field(None, description="当前默认模型 ID")
+    model_name: str | None = Field(None, description="当前默认模型名称")
+    provider_id: str | None = Field(None, description="当前供应商 ID")
+    provider_key: str | None = Field(None, description="当前供应商稳定键")
+    provider_name: str | None = Field(None, description="当前供应商名称")
+    has_api_key: bool = Field(False, description="供应商是否已保存 API Key")
+
+
+class InitialModelSetupStatusRead(BaseModel):
+    """工作台启动时使用的文字与图片模型配置状态。"""
+
+    ready: bool = Field(..., description="文字与图片模型是否都已就绪")
+    text: ModelCapabilitySetupRead
+    image: ModelCapabilitySetupRead
+
+
+class InitialModelConnection(BaseModel):
+    """首次启动时保存的一类外部模型连接。"""
+
+    provider_key: str = Field(..., min_length=1, max_length=64, description="供应商稳定键")
+    base_url: str | None = Field(None, max_length=1024, description="兼容 API Base URL")
+    api_key: str = Field("", max_length=4096, description="API Key（敏感，不在响应中回显）")
+    model_name: str = Field(..., min_length=1, max_length=255, description="供应商侧模型 ID")
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        """只接受 HTTP(S) 端点，避免把无效地址保存到运行时配置。"""
+
+        normalized = (value or "").strip()
+        if not normalized:
+            return None
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("base_url must start with http:// or https://")
+        return normalized.rstrip("/")
+
+
+class InitialModelSetupRequest(BaseModel):
+    """首次启动配置请求；已就绪的类别可以省略并保持原配置。"""
+
+    text: InitialModelConnection | None = None
+    image: InitialModelConnection | None = None

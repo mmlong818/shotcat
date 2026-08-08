@@ -49,6 +49,15 @@ def relation_type_for_frame(frame_type: str) -> str:
     return "shot_key_frame_prompt"
 
 
+def prompt_field_for_frame(frame_type: str) -> str:
+    normalized = normalize_frame_type(frame_type)
+    return {
+        "first": "first_frame_prompt",
+        "key": "key_frame_prompt",
+        "last": "last_frame_prompt",
+    }[normalized]
+
+
 def _enum_value(value: object | None) -> str:
     if value is None:
         return ""
@@ -966,11 +975,7 @@ async def resolve_batch_frame_prompt(
         raise HTTPException(status_code=404, detail=entity_not_found("ShotDetail"))
     shot, detail = row
 
-    prompt_field = {
-        "first": "first_frame_prompt",
-        "key": "key_frame_prompt",
-        "last": "last_frame_prompt",
-    }[normalized_frame_type]
+    prompt_field = prompt_field_for_frame(normalized_frame_type)
     saved_prompt = _compact_text(getattr(detail, prompt_field, ""))
     if saved_prompt:
         return saved_prompt
@@ -988,6 +993,40 @@ async def resolve_batch_frame_prompt(
     if not prompt:
         raise HTTPException(status_code=400, detail="No usable frame prompt source")
     return prompt[:1000]
+
+
+async def read_saved_frame_prompt(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    frame_type: str,
+) -> str:
+    """读取镜头已保存的指定帧提示词，不生成临时内容。"""
+
+    detail = await db.get(ShotDetail, shot_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=entity_not_found("ShotDetail"))
+    return _compact_text(getattr(detail, prompt_field_for_frame(frame_type), ""))
+
+
+async def persist_frame_prompt(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    frame_type: str,
+    prompt: str,
+) -> str:
+    """保存批量流程实际使用的提示词，确保页面与图片任务来源一致。"""
+
+    value = _compact_text(prompt)
+    if not value:
+        raise HTTPException(status_code=400, detail="frame prompt is required")
+    detail = await db.get(ShotDetail, shot_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=entity_not_found("ShotDetail"))
+    setattr(detail, prompt_field_for_frame(frame_type), value)
+    await db.flush()
+    return value
 
 
 async def run_shot_frame_prompt_task(

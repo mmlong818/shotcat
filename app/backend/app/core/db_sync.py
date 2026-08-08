@@ -45,6 +45,8 @@ def _configure_sqlite_connection(db_engine: Engine) -> None:
     def set_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> None:
         cursor = dbapi_connection.cursor()
         try:
+            # Celery/本机线程也可能删除实体，需与 API 连接保持相同的级联语义。
+            cursor.execute("PRAGMA foreign_keys = ON")
             cursor.execute("PRAGMA busy_timeout = 30000")
             cursor.execute("PRAGMA journal_mode = WAL")
             cursor.execute("PRAGMA synchronous = NORMAL")

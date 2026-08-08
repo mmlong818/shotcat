@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ApiResponse_ImageGenerationOptionsRead_ } from '../models/ApiResponse_ImageGenerationOptionsRead_';
+import type { ApiResponse_InitialModelSetupStatusRead_ } from '../models/ApiResponse_InitialModelSetupStatusRead_';
 import type { ApiResponse_list_ProviderSupportedRead__ } from '../models/ApiResponse_list_ProviderSupportedRead__';
 import type { ApiResponse_ModelRead_ } from '../models/ApiResponse_ModelRead_';
 import type { ApiResponse_ModelSettingsRead_ } from '../models/ApiResponse_ModelSettingsRead_';
@@ -11,6 +12,7 @@ import type { ApiResponse_PaginatedData_ModelRead__ } from '../models/ApiRespons
 import type { ApiResponse_PaginatedData_ProviderRead__ } from '../models/ApiResponse_PaginatedData_ProviderRead__';
 import type { ApiResponse_ProviderRead_ } from '../models/ApiResponse_ProviderRead_';
 import type { ApiResponse_VideoGenerationOptionsRead_ } from '../models/ApiResponse_VideoGenerationOptionsRead_';
+import type { InitialModelSetupRequest } from '../models/InitialModelSetupRequest';
 import type { ModelCategoryKey } from '../models/ModelCategoryKey';
 import type { ModelCreate } from '../models/ModelCreate';
 import type { ModelSettingsUpdate } from '../models/ModelSettingsUpdate';
@@ -21,6 +23,39 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class LlmService {
+    /**
+     * 检查工作台首次启动所需的模型配置
+     * 检查文字和图片默认模型、供应商及 Key 是否完整。
+     * @returns ApiResponse_InitialModelSetupStatusRead_ Successful Response
+     * @throws ApiError
+     */
+    public static getInitialSetupApiV1LlmInitialSetupGet(): CancelablePromise<ApiResponse_InitialModelSetupStatusRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/initial-setup',
+        });
+    }
+    /**
+     * 保存工作台首次启动模型配置
+     * 在一个事务中保存文字和图片连接，并更新对应默认模型。
+     * @returns ApiResponse_InitialModelSetupStatusRead_ Successful Response
+     * @throws ApiError
+     */
+    public static updateInitialSetupApiV1LlmInitialSetupPut({
+        requestBody,
+    }: {
+        requestBody: InitialModelSetupRequest,
+    }): CancelablePromise<ApiResponse_InitialModelSetupStatusRead_> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/llm/initial-setup',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * 列出模型供应商（分页）
      * @returns ApiResponse_PaginatedData_ProviderRead__ Successful Response

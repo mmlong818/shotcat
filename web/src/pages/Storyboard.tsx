@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, ANGLE_ZH, CAMERA_ZH, MOVE_ZH, type AssetImageBatchStatus, type Chapter, type Entity, type FrameType, type Project, type Shot } from '../lib/api'
+import { usePipelineJobActive } from '../TaskActivity'
+import { confirmOverwrite } from '../lib/confirmOverwrite'
 
 // 对白判别：新数据 bridge 会给对白包「」；旧数据是 [动作, 对白] 双拍点，第二条即对白
 const isDialogue = (b: string, idx: number, total: number) => /[「『“"]/.test(b) || (total === 2 && idx === 1)
@@ -31,6 +33,7 @@ export default function Storyboard({ project }: { project: Project | null }) {
   const [sel, setSel] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [pipe, setPipe] = useState('') // shot-breakdown 进行中
+  const pipelineActive = usePipelineJobActive(project?.id, 'shot-breakdown')
   const [batch, setBatch] = useState<{ cid: string; batchId: string; p: string } | null>(null) // 单集批量生成进度
   const [err, setErr] = useState('')
   const navigate = useNavigate()
@@ -86,8 +89,13 @@ export default function Storyboard({ project }: { project: Project | null }) {
 
   // AI 拆镜头(镜头级分镜)
   async function aiBreakdown() {
-    if (!project || pipe) return
-    if (!confirm('AI 重新拆镜头会替换现有镜头，继续？')) return
+    if (!project || pipe || pipelineActive) return
+    const existingShotCount = Object.values(shotsByCh).reduce((count, items) => count + items.length, 0)
+    if (existingShotCount > 0 && !confirmOverwrite({
+      step: 'AI 重新拆镜头',
+      replaces: [`现有 ${existingShotCount} 个镜头及手动修改`, '这些镜头对应的提示词和已生成画面'],
+      consequence: '旧镜头会被删除并按当前剧本重新建立，此操作无法撤销。',
+    })) return
     setPipe('shot')
     try {
       const j = await api.runPipeline('shot-breakdown', project.id)
@@ -205,8 +213,8 @@ export default function Storyboard({ project }: { project: Project | null }) {
       <div className="work-head">
         <h1>分镜 · 时序</h1>
         <div className="spacer" />
-        <button className="btn ghost" disabled={!!pipe || !!batch} onClick={aiBreakdown}>
-          {pipe === 'shot' ? '拆镜头中…' : 'AI 拆镜头'}
+        <button className="btn ghost" disabled={!!pipe || pipelineActive || !!batch} onClick={aiBreakdown}>
+          {pipe === 'shot' || pipelineActive ? '拆镜头中…' : 'AI 拆镜头'}
         </button>
       </div>
 
@@ -233,7 +241,7 @@ export default function Storyboard({ project }: { project: Project | null }) {
                 <span className="ep-caret">{open[c.id] ? '▾' : '▸'}</span>
                 <span className="ep-t">第 {c.index} 集{c.title ? ` · ${c.title}` : ''}</span>
                 <span className="ep-cnt">{list.length} 个镜头{secs > 0 && ` · 总时长约 ${secs >= 60 ? `${Math.floor(secs / 60)} 分 ${secs % 60} 秒` : `${secs} 秒`}`}</span>
-                <button className="btn ghost" disabled={!!batch || !!pipe || !list.length}
+                <button className="btn ghost" disabled={!!batch || !!pipe || pipelineActive || !list.length}
                   onClick={(e) => { e.stopPropagation(); genAllFrames(c.id) }}>
                   {batch?.cid === c.id ? `生成画面 ${batch.p}` : '批量生成本集画面'}
                 </button>

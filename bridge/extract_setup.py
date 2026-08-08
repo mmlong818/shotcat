@@ -8,7 +8,14 @@ import argparse, json, re, time, urllib.error, urllib.request
 from glm import chat_json
 from http_util import get_all
 
-SYS = """你是剧本设定抽取专家，同时担任本项目的艺术指导 agent。通读完整剧本后，先在内部统一判断故事类型、时代背景、摄影风格、人物关系和主要场景体系，再抽取设定；不要把这个内部判断作为单独字段输出。
+SYS = """你是剧本设定抽取专家，同时担任本项目的艺术指导 agent。必须完整通读剧本后再输出，不得边读边列资产。
+
+严格按以下三阶段在内部完成分析，最终只输出 JSON：
+1. 全文分类：先建立角色身份、物理场景、可移动关键道具三份基础实体清单。此时不要拆年龄、服装、时间、天气、开合或损坏状态。
+2. 全局去重：逐项回看全文，合并同一身份、同一物理空间、同一件物品。角色的本名、昵称、青年/老年称呼、幻象或回忆称呼若指向同一人，必须合并为一个角色并写入 aliases；同一地点的日/夜/持续/稍后必须先归为一个场景；同一道具的开合、内容物或磨损变化必须先归为一个道具。完成去重前禁止创建派生状态。
+3. 派生拆分：只对去重后的每个基础实体检查是否确有值得单独生成参考图的视觉变化，再建立 looks/states。语义相同但措辞不同的状态必须合并，每个实体只保留一个基准状态。
+
+输出前必须自检：基础实体无重复；aliases 不会再作为独立角色输出；同一物理地点不会因场次或时间重复；同一道具不会因状态重复；每个状态族恰好一个 is_base=true；同族 state_key 唯一且稳定。
 
 艺术指导职责：
 - 统筹所有抽取结果，让角色、场景、道具和服装符合同一个剧本、同一种年代质感、同一套摄影/美术风格。
@@ -38,7 +45,8 @@ SYS = """你是剧本设定抽取专家，同时担任本项目的艺术指导 a
 
 抽取：
 - 角色：所有有台词或明确动作的人物。
-- 场景：独立地点（地点变化或同地点明显时间跳跃各算一个）。
+- 角色身份按“叙事中的同一个人”判断，而不是按剧本中的称呼判断。例如“周诚/小周”若是同一人的现在与过去，只输出一个角色，两个时期放进该角色的 looks。
+- 场景：按独立物理地点分类；同地点的场次、持续、稍后和普通日夜变化仍是同一场景，只在空间结构或长期陈设确有显著变化时拆派生状态。
 - 物件（道具）判据——三选一才算，其余不列：①能被角色拿起/携带/递出/操作的可移动物品；②被台词点名或成为镜头/情节焦点的物品；③承载象征意义、推动情节的物品。
   【明确排除】车辆/房屋/门/窗/百叶窗/桌椅/沙发/地毯/方向盘/仪表/计价器/家具/建筑构件等固定或场景固有物，一律归入场景描述，绝不单列为道具。宁缺毋滥，只保留真正影响剧情的关键道具（通常一集 2-4 个）。
 名称一律用剧本原文；描述写视觉化简述（后续会锁定细化，不必很长）。
@@ -54,9 +62,9 @@ USER_TMPL = """【完整剧本】
 
 输出 JSON：
 {{
-  "characters": [{{"name":"", "base_appearance":"角色不随状态改变的外貌基础（性别、五官、体态、稳定发型特征等；不要写服装或手持物）", "looks":[{{"label":"造型状态名称（如少年学生时期·校服 / 成年职场时期·通勤造型）", "description":"这一状态下可见的年龄、身份、发型、妆容、服装、身体状态和年代细节"}}]}}],
-  "scenes": [{{"name":"", "base_description":"空场景的稳定空间结构、建筑/地面/墙面/陈设/材质与年代痕迹；不得含人物、动作、剧情", "states":[{{"label":"场景状态名称（如清晨晴天 / 深夜雨后）", "description":"本状态可见的光线、天气、陈设或损耗变化；仍不得含人物、动作、剧情", "is_base":true}}]}}],
-  "props": [{{"name":"", "base_description":"道具本体的稳定形态、尺寸、材质与年代特征", "states":[{{"label":"物品状态名称（如日常完好 / 使用磨损）", "description":"本状态可见的污损、破损、内容物或表面变化", "is_base":true}}], "visual_content":{{"description":"仅当道具本身展示/记录/承载角色或场景内容时，写出其中可见内容；普通道具留空", "characters":["只填写该道具中实际可见的角色名"], "scenes":["只填写该道具中实际可见的场景名"]}}}}]
+  "characters": [{{"name":"全文统一后的角色本名", "aliases":["指向同一人的其他称呼"], "base_appearance":"角色不随状态改变的外貌基础（性别、五官、体态、稳定发型特征等；不要写服装或手持物）", "looks":[{{"state_key":"稳定、简短的语义键，如 youth_student / adult_return", "label":"造型状态名称（如少年学生时期·校服 / 成年职场时期·通勤造型）", "description":"这一状态下可见的年龄、身份、发型、妆容、服装、身体状态和年代细节", "is_base":true}}]}}],
+  "scenes": [{{"name":"去掉日夜和场次后统一的物理地点名", "aliases":["同一地点的其他写法"], "base_description":"空场景的稳定空间结构、建筑/地面/墙面/陈设/材质与年代痕迹；不得含人物、动作、剧情", "states":[{{"state_key":"稳定、简短的语义键，如 base / damaged", "label":"场景状态名称（如基础状态 / 灾后损毁）", "description":"仅写值得单独生成参考图的结构、陈设或长期损耗变化；普通日夜光线不单独拆分", "is_base":true}}]}}],
+  "props": [{{"name":"去掉开合和损坏状态后统一的道具名", "aliases":["同一道具的其他写法"], "base_description":"道具本体的稳定形态、尺寸、材质与年代特征", "states":[{{"state_key":"稳定、简短的语义键，如 closed / open_with_contents", "label":"物品状态名称（如闭合完好 / 打开露出内容物）", "description":"仅写值得单独生成参考图的污损、破损、内容物或表面变化", "is_base":true}}], "visual_content":{{"description":"仅当道具本身展示/记录/承载角色或场景内容时，写出其中可见内容；普通道具留空", "characters":["只填写该道具中实际可见的角色名"], "scenes":["只填写该道具中实际可见的场景名"]}}}}]
 }}"""
 
 BASE = "http://localhost:8000/api/v1"
@@ -86,6 +94,78 @@ def items(p):
     return get_all(BASE, p)
 
 
+def _identity_names(entry: dict) -> list[str]:
+    """返回实体的统一名称和别名，用于跨称呼合并同一基础实体。"""
+    aliases = entry.get("aliases") or []
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    values = [entry.get("name"), *aliases]
+    return list(dict.fromkeys(str(value).strip() for value in values if str(value or "").strip()))
+
+
+def _family_root(asset_name: str) -> str:
+    """从平铺资产名中取出去重后的基础实体名称。"""
+    return str(asset_name or "").split(" · ", 1)[0].strip()
+
+
+def _ordered_variants(entry: dict, fallback_label: str) -> list[dict]:
+    """规范状态顺序、state_key 和唯一基准状态。"""
+    raw_variants = entry.get("states") or entry.get("looks") or []
+    variants = [dict(item) for item in raw_variants if isinstance(item, dict) and str(item.get("label") or "").strip()]
+    if not variants:
+        variants = [{"state_key": "base", "label": fallback_label, "description": "", "is_base": True}]
+
+    deduped: list[dict] = []
+    seen: set[str] = set()
+    for index, item in enumerate(variants):
+        label = str(item.get("label") or fallback_label).strip()
+        state_key = str(item.get("state_key") or ("base" if item.get("is_base") else label)).strip().lower()
+        normalized_key = re.sub(r"[^\w\u4e00-\u9fff]+", "", state_key)
+        if not normalized_key:
+            normalized_key = f"state{index + 1}"
+        if normalized_key in seen:
+            continue
+        seen.add(normalized_key)
+        item["state_key"] = state_key
+        item["label"] = label
+        deduped.append(item)
+
+    base_index = next((index for index, item in enumerate(deduped) if item.get("is_base") is True), 0)
+    for index, item in enumerate(deduped):
+        item["is_base"] = index == base_index
+    return [deduped[base_index], *deduped[:base_index], *deduped[base_index + 1:]]
+
+
+def _merge_entity_entries(entries: list, *, fallback_label: str) -> list[dict]:
+    """按统一名称和 aliases 合并模型仍可能重复输出的基础实体。"""
+    groups: list[dict] = []
+    group_names: list[set[str]] = []
+    for raw in entries:
+        if not isinstance(raw, dict) or not str(raw.get("name") or "").strip():
+            continue
+        entry = dict(raw)
+        identities = set(_identity_names(entry))
+        match_index = next((index for index, names in enumerate(group_names) if identities & names), None)
+        if match_index is None:
+            groups.append(entry)
+            group_names.append(identities)
+            continue
+        group = groups[match_index]
+        group_names[match_index].update(identities)
+        group["aliases"] = [name for name in group_names[match_index] if name != group.get("name")]
+        variants_key = "looks" if "looks" in group or "looks" in entry else "states"
+        group[variants_key] = [*(group.get(variants_key) or []), *(entry.get(variants_key) or [])]
+        for field in ("base_appearance", "base_description", "appearance", "description"):
+            if len(str(entry.get(field) or "")) > len(str(group.get(field) or "")):
+                group[field] = entry[field]
+
+    for group, identities in zip(groups, group_names):
+        group["aliases"] = [name for name in identities if name != group.get("name")]
+        variants_key = "looks" if "looks" in group else "states"
+        group[variants_key] = _ordered_variants(group, fallback_label)
+    return groups
+
+
 def create_idem(path, body):
     c, r = _req("POST", path, body)
     if c < 400:
@@ -93,8 +173,7 @@ def create_idem(path, body):
     msg = str(r.get("message", ""))
     if "already exists" in msg or "已存在" in msg:
         return "exists"
-    print(f"    ! {path} {c} {msg[:60]}")
-    return "fail"
+    raise RuntimeError(f"{path} 保存失败：HTTP {c} {msg[:120]}")
 
 
 def wait_get(path, tries=30):
@@ -128,71 +207,163 @@ def run(pid: str, model: str):
             "style": style, "visual_style": visual, "project_id": pid,
         })
 
-    # 重跑稳定性：先拉现有实体建 名称→id 映射，原名命中就复用旧 id；
-    # 新 id 从现有最大序号之后接着分配，避免 GLM 枚举顺序变动导致 id 漂移/撞号。
+    # 重跑稳定性：按“基础实体家族”同步现有记录，不再把模型换一种状态措辞
+    # 当作新资产；新 id 只从现有最大序号之后分配。
     def alloc(etype, kw):
+        """读取某类现有实体并初始化同步状态。"""
         existing = items(f"/studio/entities/{etype}?project_id={pid}&page_size=100")
-        name2id = {e["name"]: e["id"] for e in existing}
         pat = re.compile(rf"^{re.escape(pid)}__{re.escape(kw)}_(\d+)$")
         mx = max((int(m.group(1)) for e in existing for m in [pat.match(e.get("id", ""))] if m), default=0)
-        return name2id, mx
+        return {"existing": existing, "pattern": pat, "max": mx, "claimed": set(), "removed": set()}
 
     def next_id(state, kw):
-        state[1] += 1
-        return pfx(f"{kw}_{state[1]:03d}")
+        """为同步中新出现的状态分配下一个稳定 ID。"""
+        state["max"] += 1
+        return pfx(f"{kw}_{state['max']:03d}")
 
-    sc = data.get("scenes", []); pr = data.get("props", []); ch = data.get("characters", [])
-    sc_n2i, sc_mx = alloc("scene", "scene"); sc_state = [sc_n2i, sc_mx]
-    pr_n2i, pr_mx = alloc("prop", "prop"); pr_state = [pr_n2i, pr_mx]
-    ch_n2i, ch_mx = alloc("character", "char"); ch_state = [ch_n2i, ch_mx]
+    sc = _merge_entity_entries(data.get("scenes", []), fallback_label="基础状态")
+    pr = _merge_entity_entries(data.get("props", []), fallback_label="基础状态")
+    ch = _merge_entity_entries(data.get("characters", []), fallback_label="剧本当前造型")
+    sc_state = alloc("scene", "scene")
+    pr_state = alloc("prop", "prop")
+    ch_state = alloc("character", "char")
+
+    def update_asset(entity_type, entity_id, name, description):
+        """更新已匹配的资产；任一失败立即终止整步抽取。"""
+        code, response = _req(
+            "PATCH",
+            f"/studio/entities/{entity_type}/{entity_id}",
+            {"name": name, "description": description},
+        )
+        if code >= 400:
+            raise RuntimeError(
+                f"/studio/entities/{entity_type}/{entity_id} 更新失败：HTTP {code} "
+                f"{str(response.get('message', ''))[:120]}"
+            )
+
+    def delete_asset(entity_type, entity):
+        """删除不再属于最新全文分类结果的旧状态资产。"""
+        entity_id = str(entity.get("id") or "")
+        code, response = _req("DELETE", f"/studio/entities/{entity_type}/{entity_id}")
+        if code >= 400:
+            raise RuntimeError(
+                f"/studio/entities/{entity_type}/{entity_id} 删除失败：HTTP {code} "
+                f"{str(response.get('message', ''))[:120]}"
+            )
+
+    def stored_state_key(entity):
+        """从已保存描述中读取稳定状态键，兼容没有该字段的旧记录。"""
+        for line in str(entity.get("description") or "").splitlines():
+            if line.startswith("【状态键】"):
+                return line.removeprefix("【状态键】").strip().lower()
+        return ""
+
+    def delete_entities(entity_type, state, entities):
+        """先删派生状态再删基准，避免旧引用链阻止清理。"""
+        ordered = sorted(
+            entities,
+            key=lambda item: 0 if "【状态关系】派生自：" in str(item.get("description") or "") else 1,
+        )
+        for entity in ordered:
+            entity_id = str(entity.get("id") or "")
+            if not entity_id or entity_id in state["removed"]:
+                continue
+            delete_asset(entity_type, entity)
+            state["removed"].add(entity_id)
 
     def store_state_family(entity_type, id_key, state, entries, *, base_field, legacy_field, title, fallback_label, extra_description=None):
-        """将同一实体的基准与状态平铺成可独立引用的资产，并记录派生关系。"""
+        """按全文去重后的实体家族覆盖同步基准与派生状态。"""
         count = 0
         for entry in entries:
             base_name = (entry.get("name") or "").strip()
             if not base_name:
                 continue
-            variants = [item for item in (entry.get("states") or entry.get("looks") or []) if isinstance(item, dict) and (item.get("label") or "").strip()]
-            if not variants:
-                variants = [{"label": fallback_label, "description": entry.get(legacy_field) or entry.get(base_field) or "", "is_base": True}]
-            base_variant = next((item for item in variants if item.get("is_base") is True), variants[0])
-            base_label = str(base_variant.get("label") or fallback_label).strip()
+            variants = _ordered_variants(entry, fallback_label)
+            if not str(variants[0].get("description") or "").strip():
+                variants[0]["description"] = entry.get(legacy_field) or entry.get(base_field) or ""
+            base_label = str(variants[0].get("label") or fallback_label).strip()
             base_asset_name = f"{base_name} · {base_label}"
-            for index, variant in enumerate(variants):
+            identity_names = set(_identity_names(entry))
+            family = sorted(
+                [
+                    item for item in state["existing"]
+                    if str(item.get("id") or "") not in state["claimed"]
+                    and str(item.get("id") or "") not in state["removed"]
+                    and _family_root(str(item.get("name") or "")) in identity_names
+                ],
+                key=lambda item: str(item.get("id") or ""),
+            )
+            used_ids: set[str] = set()
+            plans: list[tuple[dict | None, str, str]] = []
+            for variant in variants:
                 label = str(variant.get("label") or fallback_label).strip()
                 asset_name = f"{base_name} · {label}"
                 base = (entry.get(base_field) or entry.get(legacy_field) or "").strip()
                 detail = (variant.get("description") or "").strip()
-                relation = "【状态关系】基准" if label == base_label else f"【状态关系】派生自：{base_asset_name}"
+                state_key = str(variant.get("state_key") or "base").strip().lower()
+                relation = "【状态关系】基准" if variant.get("is_base") else f"【状态关系】派生自：{base_asset_name}"
                 description = "\n".join(part for part in [
                     f"【{title}基础】{base}" if base else "",
                     f"【{title}状态】{detail}" if detail else "",
+                    f"【状态键】{state_key}",
                     relation,
                     extra_description(entry) if extra_description else "",
                 ] if part)
-                legacy_id = state[0].get(base_name)
-                has_state = any(existing_name.startswith(f"{base_name} · ") for existing_name in state[0])
-                if index == 0 and legacy_id and not has_state and asset_name not in state[0]:
-                    code, _ = _req("PATCH", f"/studio/entities/{entity_type}/{legacy_id}", {"name": asset_name, "description": description})
-                    if code < 400:
-                        state[0].pop(base_name, None)
-                        state[0][asset_name] = legacy_id
-                        count += 1
-                        continue
-                entity_id = state[0].get(asset_name) or next_id(state, id_key)
-                asset(entity_type, entity_id, asset_name, description)
+                available = [item for item in family if str(item.get("id") or "") not in used_ids]
+                target = next((item for item in available if item.get("name") == asset_name), None)
+                if target is None:
+                    target = next((item for item in available if stored_state_key(item) == state_key), None)
+                if target is None and variant.get("is_base"):
+                    target = next(
+                        (item for item in available if "【状态关系】基准" in str(item.get("description") or "")),
+                        None,
+                    )
+                if target is None and available:
+                    target = available[0]
+                if target is not None:
+                    used_ids.add(str(target.get("id") or ""))
+                plans.append((target, asset_name, description))
+
+            delete_entities(
+                entity_type,
+                state,
+                [item for item in family if str(item.get("id") or "") not in used_ids],
+            )
+            for target, asset_name, description in plans:
+                if target is None:
+                    entity_id = next_id(state, id_key)
+                    asset(entity_type, entity_id, asset_name, description)
+                else:
+                    entity_id = str(target.get("id") or "")
+                    update_asset(entity_type, entity_id, asset_name, description)
+                    state["claimed"].add(entity_id)
                 count += 1
+
+        stale = [
+            item for item in state["existing"]
+            if state["pattern"].match(str(item.get("id") or ""))
+            and str(item.get("id") or "") not in state["claimed"]
+            and str(item.get("id") or "") not in state["removed"]
+        ]
+        delete_entities(entity_type, state, stale)
         return count
 
     def base_asset_name(entry, fallback_label):
-        variants = [item for item in (entry.get("states") or entry.get("looks") or []) if isinstance(item, dict) and (item.get("label") or "").strip()]
-        base_variant = next((item for item in variants if item.get("is_base") is True), variants[0] if variants else {})
-        label = str(base_variant.get("label") or fallback_label).strip()
+        """返回实体家族的基准资产名。"""
+        variants = _ordered_variants(entry, fallback_label)
+        label = str(variants[0].get("label") or fallback_label).strip()
         return f"{entry.get('name', '').strip()} · {label}" if entry.get("name") else ""
 
-    character_base_names = {entry.get("name"): base_asset_name(entry, "剧本当前造型") for entry in ch}
-    scene_base_names = {entry.get("name"): base_asset_name(entry, "基础状态") for entry in sc}
+    character_base_names = {
+        identity: base_asset_name(entry, "剧本当前造型")
+        for entry in ch
+        for identity in _identity_names(entry)
+    }
+    scene_base_names = {
+        identity: base_asset_name(entry, "基础状态")
+        for entry in sc
+        for identity in _identity_names(entry)
+    }
 
     def prop_visual_content(entry):
         visual_content = entry.get("visual_content") or {}

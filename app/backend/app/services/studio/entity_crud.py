@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import apply_keyword_filter, apply_order, paginate
@@ -555,6 +555,11 @@ async def delete_entity(
             entity_id=entity_id,
             fallback_entity_id=fallback_entity_id,
         )
+    # 先显式删除图片槽位，再由数据库外键清理其余关联。这样即使历史 SQLite
+    # 连接未开启 foreign_keys，也不会留下阻塞同 ID 资产重建的孤立槽位。
+    await db.execute(
+        delete(spec.image_model).where(getattr(spec.image_model, spec.id_field) == entity_id)
+    )
     await db.delete(obj)
     await db.flush()
     return {

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, fileUrl, type AssetImageBatchStatus, type Entity, type EntityUsageShot, type Project } from '../lib/api'
 import Lightbox from '../Lightbox'
+import { usePipelineJobActive } from '../TaskActivity'
+import { confirmOverwrite } from '../lib/confirmOverwrite'
 
 const CATS = [
   { key: 'character', label: '角色' },
@@ -83,6 +85,7 @@ export default function Cast({ project }: { project: Project | null }) {
   const [err, setErr] = useState('')
   const [batch, setBatch] = useState<AssetImageBatchStatus | null>(null)
   const [pipe, setPipe] = useState('') // 视觉词典生成中
+  const pipelineActive = usePipelineJobActive(project?.id, 'visual-dict')
   const [angles, setAngles] = useState<Record<string, EntityImage[]>>({}) // 实体全部角度图
   const [lb, setLb] = useState<string | null>(null)
   const [promptEdits, setPromptEdits] = useState<Record<string, string>>({})
@@ -348,6 +351,11 @@ export default function Cast({ project }: { project: Project | null }) {
 
   async function gen(e: Entity) {
     if (busy) return
+    if (thumbOf(e) && !confirmOverwrite({
+      step: `重新生成「${e.name}」造型图`,
+      replaces: ['当前造型图', '后续新生成镜头所使用的设定参考图'],
+      consequence: '已经生成的镜头画面不会自动更新，如需一致请在画面页重新生成对应镜头。',
+    })) return
     setBusy(e.id); setErr(''); setStage('生成中…')
     try {
       const prompt = (tab === 'scene' ? ensureSceneGuard(promptFor(tab, e)) : promptFor(tab, e)).trim()
@@ -459,11 +467,20 @@ export default function Cast({ project }: { project: Project | null }) {
     }
   }
   async function lockVisualDict() {
-    if (!project || pipe) return
+    if (!project || pipe || pipelineActive) return
+    const completionKey = `shotcat:completed:visual-dict:${project.id}`
+    const hasExistingOutput = localStorage.getItem(completionKey) === '1'
+      || DATA_CATS.some((category) => (data[category.key] || []).some((entity) => Boolean(thumbOf(entity))))
+    if (hasExistingOutput && !confirmOverwrite({
+      step: '锁定角色状态与视觉词典',
+      replaces: ['设定页的角色、场景和道具视觉描述', '下一步生成造型图所使用的提示词'],
+      consequence: '已有造型图不会自动改变；要应用新的视觉词典，需要重新生成相应造型图。',
+    })) return
     setPipe('dict'); setErr('')
     try {
       const job = await api.runPipeline('visual-dict', project.id)
       await api.pollPipeline(job, 200, () => cancelledRef.current)
+      localStorage.setItem(completionKey, '1')
       loadAll()
     } catch (x: any) { setErr(x?.message || '视觉词典生成失败') } finally { setPipe('') }
   }
@@ -506,10 +523,10 @@ export default function Cast({ project }: { project: Project | null }) {
         <button className="btn ghost" disabled={exporting || !!batch || !!busy} onClick={exportAssets}>
           {exporting ? '打包导出中…' : '批量导出设定'}
         </button>
-        <button className="btn ghost" disabled={!!pipe || !!busy} onClick={lockVisualDict}>
-          {pipe === 'dict' ? '锁定中…（读全剧本）' : '① 锁定角色状态与视觉词典'}
+        <button className="btn ghost" disabled={!!pipe || pipelineActive || !!busy} onClick={lockVisualDict}>
+          {pipe === 'dict' || pipelineActive ? '锁定中…（读全剧本）' : '① 锁定角色状态与视觉词典'}
         </button>
-        <button className="btn primary" disabled={!!batch || !!busy || !!pipe} onClick={genMissing}>
+        <button className="btn primary" disabled={!!batch || !!busy || !!pipe || pipelineActive} onClick={genMissing}>
           {batch ? `排队生成 ${batch.succeeded + batch.failed + batch.cancelled}/${batch.total}` : stage === '提交任务中…' ? '提交任务中…' : '② 提交全部缺失造型任务'}
         </button>
         {batch && <button className="btn ghost" onClick={stopMissingGeneration}>停止排队</button>}

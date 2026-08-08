@@ -108,6 +108,28 @@ export class StudioProjectsService {
         });
     }
     /**
+     * 批量导出项目设定图 ZIP
+     * 导出角色、场景、道具的全部已生成设定图，按类型目录和资产名称命名。
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static exportProjectAssetsApiV1StudioProjectsProjectIdAssetsExportGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/projects/{project_id}/assets/export',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * 获取项目
      * @returns ApiResponse_ProjectRead_ Successful Response
      * @throws ApiError

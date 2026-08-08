@@ -188,6 +188,38 @@ def test_revoke_task_execution_revokes_celery_task(monkeypatch, tmp_path) -> Non
     sync_engine.dispose()
 
 
+def test_revoke_task_execution_accepts_local_thread_cancellation(monkeypatch, tmp_path) -> None:
+    db_path = tmp_path / "task-revoke-local.db"
+    sync_engine = create_engine(f"sqlite:///{db_path}", future=True)
+    sync_session_local = sessionmaker(sync_engine, class_=Session, expire_on_commit=False)
+
+    import app.models.task  # noqa: F401
+
+    Base.metadata.create_all(sync_engine)
+    with sync_session_local() as db:
+        db.add(
+            GenerationTask(
+                id="task-revoke-local",
+                mode="async_polling",
+                task_kind="image_generation",
+                status="running",
+                progress=10,
+                payload={"task_kind": "image_generation", "run_args": {}},
+                result=None,
+                error="",
+                executor_type="local-thread",
+                executor_task_id="local-task-revoke",
+            )
+        )
+        db.commit()
+
+    monkeypatch.setattr(execute_task_module, "sync_session_maker", sync_session_local)
+
+    assert execute_task_module.revoke_task_execution("task-revoke-local") is True
+
+    sync_engine.dispose()
+
+
 def test_async_delegating_executors_use_positional_runner_signature() -> None:
     for task_kind, executor in task_executor_registry._executors.items():
         if not isinstance(executor, AbstractAsyncDelegatingExecutor):
