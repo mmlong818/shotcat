@@ -139,6 +139,7 @@ class ShotDetailBase(BaseModel):
     has_bgm: bool = Field(False, description="是否包含 BGM")
     vfx_type: VFXType = Field(VFXType.none, description="视效类型")
     vfx_note: str = Field("", description="视效说明")
+    description: str = Field("", description="分镜整体描述（含画面、空间锚点、构图与连续性）")
     action_beats: list[str] = Field(default_factory=list, description="动作拍点（按时间顺序排列）")
     first_frame_prompt: str = Field(
         "",
@@ -171,6 +172,7 @@ class ShotDetailUpdate(BaseModel):
     has_bgm: bool | None = None
     vfx_type: VFXType | None = None
     vfx_note: str | None = None
+    description: str | None = None
     action_beats: list[str] | None = None
     first_frame_prompt: str | None = None
     last_frame_prompt: str | None = None

@@ -253,7 +253,7 @@ async def test_build_run_args_aggregates_dialog_and_project_style() -> None:
         assert run_args["input"]["camera_shot"] == "MS"
         assert run_args["input"]["angle"] == "EYE_LEVEL"
         assert run_args["input"]["movement"] == "STATIC"
-        assert run_args["input"]["dialog_summary"] == "我们到了。"
+        assert run_args["input"]["dialog_summary"] == "主角：我们到了。"
         assert run_args["input"]["visual_style"] == ProjectVisualStyle.live_action.value
         assert run_args["input"]["style"] == ProjectStyle.real_people_city.value
         assert run_args["input"]["unify_style"] is True

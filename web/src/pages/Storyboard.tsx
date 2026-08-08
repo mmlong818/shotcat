@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, ANGLE_ZH, CAMERA_ZH, MOVE_ZH, type AssetImageBatchStatus, type Chapter, type Entity, type FrameType, type Project, type Shot } from '../lib/api'
+import { api, ANGLE_ZH, CAMERA_ZH, findPipelineJob, forgetPipelineJob, MOVE_ZH, type Chapter, type Entity, type Project, type Shot } from '../lib/api'
 import { usePipelineJobActive } from '../TaskActivity'
 import { confirmOverwrite } from '../lib/confirmOverwrite'
 
@@ -19,8 +19,17 @@ const withTag = (s: Shot, prefix: string, val: string) => [
 
 // 对白字数（去引号/标点/空白）与朗读秒数换算：常规每秒 4 字，慢速每秒 3 字
 const PUNCT = /[「」『』“”\s，。！？；：、…—·,.!?;:]/g
-const dlgChars = (beats: string[]) =>
-  beats.reduce((n, b, j) => n + (isDialogue(b, j, beats.length) ? b.replace(PUNCT, '').length : 0), 0)
+const stripDialogueQuotes = (text: string) => text.replace(/^[「『“"]|[」』”"]$/g, '')
+const dialogueText = (beat: string, speakerNames: string[]) => {
+  const text = stripDialogueQuotes(beat)
+  const speaker = [...speakerNames].sort((a, b) => b.length - a.length)
+    .find((name) => text.startsWith(`${name}：`) || text.startsWith(`${name}:`))
+  return speaker ? text.slice(speaker.length + 1).trim() : text
+}
+const dlgChars = (beats: string[], speakerNames: string[]) =>
+  beats.reduce((n, b, j) => n + (
+    isDialogue(b, j, beats.length) ? dialogueText(b, speakerNames).replace(PUNCT, '').length : 0
+  ), 0)
 const speakSecs = (chars: number) => ({ normal: Math.ceil(chars / 4), slow: Math.ceil(chars / 3) })
 
 export default function Storyboard({ project }: { project: Project | null }) {
@@ -34,19 +43,14 @@ export default function Storyboard({ project }: { project: Project | null }) {
   const [loading, setLoading] = useState(false)
   const [pipe, setPipe] = useState('') // shot-breakdown 进行中
   const pipelineActive = usePipelineJobActive(project?.id, 'shot-breakdown')
-  const [batch, setBatch] = useState<{ cid: string; batchId: string; p: string } | null>(null) // 单集批量生成进度
   const [err, setErr] = useState('')
   const navigate = useNavigate()
 
   const reqRef = useRef(0) // 加载请求令牌：仅最新请求可回写，避免切项目竞态
   const cancelledRef = useRef(false) // 卸载后停止轮询
+  const pollingBreakdownRef = useRef('') // 同一分镜任务只允许一个轮询器和一个确认弹窗
   // 挂载时重置：StrictMode(dev) 模拟卸载会把 ref 置 true 且跨挂载保留，不重置则轮询秒取消
   useEffect(() => { cancelledRef.current = false; return () => { cancelledRef.current = true } }, [])
-
-  const frameBatchStorageKey = (projectId: string) => `shotcat:frameImageBatch:${projectId}`
-  const frameBatchProgress = (status: AssetImageBatchStatus) => (
-    `${status.succeeded + status.failed + status.cancelled}/${status.total}`
-  )
 
   const loadAll = async () => {
     if (!project) return
@@ -88,6 +92,45 @@ export default function Storyboard({ project }: { project: Project | null }) {
   }
 
   // AI 拆镜头(镜头级分镜)
+  async function superviseBreakdown(jobId: string) {
+    if (pollingBreakdownRef.current === jobId) return
+    pollingBreakdownRef.current = jobId
+    setPipe('shot')
+    try {
+      for (;;) {
+        const state = await api.pollPipeline(jobId, 200, () => cancelledRef.current)
+        if (state.status === 'done') {
+          await loadAll()
+          return
+        }
+        if (state.status !== 'awaiting_confirmation') return
+        await loadAll()
+        const issueText = (state.issues || []).slice(0, 6).join('\n')
+        const issueCount = state.issues?.length || '若干'
+        const confirmed = window.confirm(
+          `导演校验发现 ${issueCount} 个关键问题，完整分镜草稿已经保存。\n\n${issueText || state.error}\n\n点击“确定”后只修正对应镜头，其他镜头保持不变。`,
+        )
+        if (!confirmed) {
+          await api.cancelPipelineJob(jobId).catch(() => null)
+          forgetPipelineJob(jobId)
+          setErr('已停止导演修正，当前分镜草稿已保留。')
+          return
+        }
+        await api.confirmPipelineRepair(jobId)
+      }
+    } catch (e: any) {
+      if (e?.message?.includes('job not found')) {
+        forgetPipelineJob(jobId)
+        await loadAll()
+        return
+      }
+      alert(e?.message || '拆镜头失败')
+    } finally {
+      if (pollingBreakdownRef.current === jobId) pollingBreakdownRef.current = ''
+      setPipe('')
+    }
+  }
+
   async function aiBreakdown() {
     if (!project || pipe || pipelineActive) return
     const existingShotCount = Object.values(shotsByCh).reduce((count, items) => count + items.length, 0)
@@ -96,59 +139,19 @@ export default function Storyboard({ project }: { project: Project | null }) {
       replaces: [`现有 ${existingShotCount} 个镜头及手动修改`, '这些镜头对应的提示词和已生成画面'],
       consequence: '旧镜头会被删除并按当前剧本重新建立，此操作无法撤销。',
     })) return
-    setPipe('shot')
-    try {
-      const j = await api.runPipeline('shot-breakdown', project.id)
-      await api.pollPipeline(j, 200, () => cancelledRef.current)
-      await loadAll()
-    } catch (e: any) { alert(e?.message || '拆镜头失败') } finally { setPipe('') }
-  }
-  // 批量生成某一集缺失画面的镜头：每个镜头只补一张代表关键帧
-  async function genAllFrames(cid: string) {
-    const list = shotsByCh[cid] || []
-    if (!list.length || batch) return
-    const ratio = project?.default_video_ratio || '9:16'
-    const idx = await api.frameIndex().catch(() => ({} as Record<string, Partial<Record<FrameType, string>>>))
-    const queue = list.filter((s) => {
-      const f = idx[s.id]
-      return !f?.key
+    const jobId = await api.runPipeline('shot-breakdown', project.id).catch((e: any) => {
+      alert(e?.message || '拆镜头失败')
+      return ''
     })
-    if (!queue.length) return
-    setBatch({ cid, batchId: '', p: `0/${queue.length}` })
-    let completed: AssetImageBatchStatus | null = null
-    try {
-      const items = await Promise.all(queue.map(async (s) => {
-        const refs = await api.frameRefs(s.id, project?.id).catch(() => [])
-        return { shot_id: s.id, name: s.title || `镜头 ${s.index}`, frame_type: 'key' as FrameType, images: refs }
-      }))
-      const created = await api.createFrameImageBatch(items, ratio)
-      localStorage.setItem(frameBatchStorageKey(project!.id), JSON.stringify({ batchId: created.batch_id, cid }))
-      setBatch({ cid, batchId: created.batch_id, p: `0/${created.total}` })
-      completed = await api.pollFrameImageBatch(created.batch_id, (s) => {
-        setBatch({ cid, batchId: created.batch_id, p: frameBatchProgress(s) })
-      }, () => cancelledRef.current)
-      if (completed?.status === 'cancelled') setErr(`已停止队列，保留已完成的 ${completed.succeeded} 张画面。`)
-    } catch (e: any) {
-      setErr(e?.message || '批量生成提交失败')
-    } finally {
-      if (completed && project) localStorage.removeItem(frameBatchStorageKey(project.id))
-      setBatch(null)
-      if (!cancelledRef.current) await loadAll()
-    }
+    if (jobId) await superviseBreakdown(jobId)
   }
 
-  async function stopFrameGeneration() {
-    if (!batch?.batchId) return
-    if (!window.confirm('停止当前批量生成？正在执行的图片任务也会收到取消请求，已经完成的图片会保留。')) return
-    try {
-      const stopped = await api.cancelFrameImageBatch(batch.batchId)
-      setBatch((current) => current ? { ...current, p: frameBatchProgress(stopped) } : current)
-      setErr('已请求停止队列，正在执行的任务将尽快取消。')
-    } catch (e: any) {
-      setErr(e?.message || '停止队列失败')
-    }
-  }
-
+  // 刷新或切回分镜页后继续接管等待确认/修正中的任务，避免确认流程因页面切换消失。
+  useEffect(() => {
+    const existing = findPipelineJob(project?.id, 'shot-breakdown')
+    if (existing) void superviseBreakdown(existing.jobId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, pipelineActive])
   useEffect(() => {
     if (!project) return
     loadAll()
@@ -157,46 +160,10 @@ export default function Storyboard({ project }: { project: Project | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id])
 
-  useEffect(() => {
-    if (!project || batch) return
-    const raw = localStorage.getItem(frameBatchStorageKey(project.id))
-    if (!raw) return
-    let saved: { batchId: string; cid: string }
-    try { saved = JSON.parse(raw) } catch { localStorage.removeItem(frameBatchStorageKey(project.id)); return }
-    if (!saved.batchId || !saved.cid) { localStorage.removeItem(frameBatchStorageKey(project.id)); return }
-    let stopped = false
-    ;(async () => {
-      try {
-        const first = await api.frameImageBatchStatus(saved.batchId)
-        if (stopped) return
-        if (first.status === 'succeeded' || first.status === 'failed' || first.status === 'cancelled') {
-          localStorage.removeItem(frameBatchStorageKey(project.id))
-          await loadAll()
-          return
-        }
-        setBatch({ cid: saved.cid, batchId: saved.batchId, p: frameBatchProgress(first) })
-        const completed = await api.pollFrameImageBatch(
-          saved.batchId,
-          (status) => !stopped && setBatch({ cid: saved.cid, batchId: saved.batchId, p: frameBatchProgress(status) }),
-          () => stopped || cancelledRef.current,
-        )
-        if (!stopped && completed) {
-          localStorage.removeItem(frameBatchStorageKey(project.id))
-          setErr(completed.status === 'cancelled' ? `已停止队列，保留已完成的 ${completed.succeeded} 张画面。` : completed.failed ? `批量生成完成，失败 ${completed.failed} 项。` : '批量生成完成。')
-          await loadAll()
-          setBatch(null)
-        }
-      } catch {
-        if (!stopped) localStorage.removeItem(frameBatchStorageKey(project.id))
-      }
-    })()
-    return () => { stopped = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id])
-
   if (!project) return <div className="center">未找到项目 · 请先用 bridge 导入剧本</div>
 
   const totalShots = Object.values(shotsByCh).reduce((n, l) => n + l.length, 0)
+  const breakdownComplete = totalShots > 0 && !pipe && !pipelineActive
   const sceneName = (id?: string | null) => (id ? scenes.find((s) => s.id === id)?.name : undefined)
   const charName = (id: string) => chars.find((c) => c.id === id)?.name || id.split('__').pop()
 
@@ -213,7 +180,7 @@ export default function Storyboard({ project }: { project: Project | null }) {
       <div className="work-head">
         <h1>分镜 · 时序</h1>
         <div className="spacer" />
-        <button className="btn ghost" disabled={!!pipe || pipelineActive || !!batch} onClick={aiBreakdown}>
+        <button className={`btn ${breakdownComplete ? 'ghost' : 'primary'}`} disabled={!!pipe || pipelineActive} onClick={aiBreakdown}>
           {pipe === 'shot' || pipelineActive ? '拆镜头中…' : 'AI 拆镜头'}
         </button>
       </div>
@@ -241,13 +208,10 @@ export default function Storyboard({ project }: { project: Project | null }) {
                 <span className="ep-caret">{open[c.id] ? '▾' : '▸'}</span>
                 <span className="ep-t">第 {c.index} 集{c.title ? ` · ${c.title}` : ''}</span>
                 <span className="ep-cnt">{list.length} 个镜头{secs > 0 && ` · 总时长约 ${secs >= 60 ? `${Math.floor(secs / 60)} 分 ${secs % 60} 秒` : `${secs} 秒`}`}</span>
-                <button className="btn ghost" disabled={!!batch || !!pipe || pipelineActive || !list.length}
-                  onClick={(e) => { e.stopPropagation(); genAllFrames(c.id) }}>
-                  {batch?.cid === c.id ? `生成画面 ${batch.p}` : '批量生成本集画面'}
+                <button className={`btn ${breakdownComplete && list.length ? 'primary' : 'ghost'}`} disabled={!!pipe || pipelineActive || !list.length}
+                  onClick={(e) => { e.stopPropagation(); navigate(`/frames?generate=${encodeURIComponent(c.id)}`) }}>
+                  批量生成本集画面
                 </button>
-                {batch?.cid === c.id && batch.batchId && (
-                  <button className="btn ghost" onClick={(e) => { e.stopPropagation(); stopFrameGeneration() }}>停止排队</button>
-                )}
               </div>
               {open[c.id] && (list.length === 0 ? (
                 <div className="center" style={{ height: 90 }}>本集尚无分镜 · 点「AI 拆镜头」按情节拆解</div>
@@ -265,12 +229,12 @@ export default function Storyboard({ project }: { project: Project | null }) {
                     const ready = s.status === 'ready'
                     const beats = s.action_beats || []
                     const editing = s.id === sel // 选中行进入行内编辑
-                    const castNames = (castByShot[s.id] || []).map(charName).filter(Boolean)
-                    const dc = dlgChars(beats)
+                    const castNames = (castByShot[s.id] || []).map(charName).filter((name): name is string => Boolean(name))
+                    const dc = dlgChars(beats, castNames)
                     const need = speakSecs(dc)
                     const tight = dc > 0 && (s.duration || 0) < need.normal // 常规语速都说不完
                     // 动作/台词分栏（专业分镜表双栏）；台词编辑时去外层引号，保存时补回
-                    const stripQ = (x: string) => x.replace(/^「|」$/g, '')
+                    const stripQ = (x: string) => dialogueText(x, castNames)
                     const wrapQ = (x: string) => (/[「『“"]/.test(x) ? x : `「${x}」`)
                     const actBeats = beats.filter((b, j) => !isDialogue(b, j, beats.length))
                     const dlgBeats = beats.filter((b, j) => isDialogue(b, j, beats.length))

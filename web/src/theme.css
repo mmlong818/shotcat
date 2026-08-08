@@ -152,6 +152,20 @@ a{color:inherit;text-decoration:none}
 .work.frames-page .canvas{flex:1;min-height:0}
 .work.frames-page .fstrip{overflow-y:auto;min-height:0;padding-right:6px}
 .work.frames-page .stage-col{overflow-y:auto;min-height:0}
+.frame-execution{flex:none;margin:0 0 16px;border:1px solid var(--border-soft);border-radius:var(--r-sm);background:var(--surface-2);overflow:hidden}
+.frame-execution-head{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--border-soft)}
+.frame-execution-head>div{display:flex;align-items:baseline;gap:8px}.frame-execution-head strong{font-size:13px;color:var(--text)}
+.frame-execution-head span{font-size:11px;color:var(--text-3)}.frame-execution-head>.frame-execution-state{margin-left:auto;color:var(--gold-2)}
+.frame-execution-head>.frame-execution-state.is-succeeded{color:var(--success)}.frame-execution-head>.frame-execution-state.is-failed{color:var(--danger)}
+.frame-execution-head .btn{padding:4px 10px;font-size:11px}
+.frame-execution-progress{height:2px;background:var(--border-soft)}.frame-execution-progress i{display:block;height:100%;background:var(--gold);transition:width .25s ease}
+.frame-execution-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:0 16px;max-height:132px;overflow:auto;padding:6px 12px}
+.frame-execution-item{min-width:0;display:grid;grid-template-columns:8px minmax(0,1fr);align-items:center;gap:7px;padding:5px 0;color:var(--text-2);font-size:11.5px}
+.frame-execution-item>span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.frame-execution-item small{grid-column:2;color:var(--danger);font-size:10px}
+.frame-execution-dot{width:6px;height:6px;border-radius:50%;background:var(--text-3)}
+.frame-execution-item.is-running .frame-execution-dot{background:var(--gold);box-shadow:0 0 0 3px var(--gold-soft)}
+.frame-execution-item.is-succeeded .frame-execution-dot{background:var(--success)}
+.frame-execution-item.is-failed .frame-execution-dot,.frame-execution-item.is-cancelled .frame-execution-dot{background:var(--danger)}
 .fstrip{display:flex;flex-direction:column;gap:8px}
 .fstrip .lbl{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:2px}
 .fs-grp{display:flex;flex-direction:column;gap:8px}

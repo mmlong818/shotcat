@@ -257,7 +257,15 @@ export default function TaskActivity() {
           label: PIPELINE_LABELS[job.step],
           count: 1,
           progress: null,
-          status: cancelling ? '停止中' : job.status === 'queued' ? '排队中' : job.status === 'unavailable' ? '服务连接中断' : '执行中',
+          status: cancelling
+            ? '停止中'
+            : job.status === 'queued'
+              ? '排队中'
+              : job.status === 'awaiting_confirmation'
+                ? '等待确认'
+                : job.status === 'unavailable'
+                  ? '服务连接中断'
+                  : '执行中',
           route: PIPELINE_ROUTES[job.step],
           cancelling,
           error: job.status === 'unavailable',

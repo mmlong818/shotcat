@@ -112,8 +112,8 @@ def test_frame_batch_uses_saved_prompt_without_regenerating(monkeypatch) -> None
         calls["image_prompt"] = prompt
         return "image-task-1"
 
-    async def _on_task_created(task_id: str):
-        calls["created_tasks"].append(task_id)
+    async def _on_task_created(task_id: str, stage: str):
+        calls["created_tasks"].append((task_id, stage))
 
     monkeypatch.setattr(route, "async_session_maker", lambda: _SessionContext())
     monkeypatch.setattr(route, "_read_saved_frame_prompt_service", _read_saved_prompt)
@@ -136,7 +136,7 @@ def test_frame_batch_uses_saved_prompt_without_regenerating(monkeypatch) -> None
     assert calls == {
         "prompt_source": ("shot-1", "key"),
         "image_prompt": "已保存的关键帧提示词",
-        "created_tasks": ["image-task-1"],
+        "created_tasks": [("image-task-1", "image")],
     }
 
 
@@ -170,8 +170,8 @@ def test_frame_batch_generates_and_uses_missing_prompt(monkeypatch) -> None:
         calls["image_prompt"] = prompt
         return "image-task-1"
 
-    async def _on_task_created(task_id: str):
-        calls["created_tasks"].append(task_id)
+    async def _on_task_created(task_id: str, stage: str):
+        calls["created_tasks"].append((task_id, stage))
 
     monkeypatch.setattr(route, "async_session_maker", lambda: _SessionContext())
     monkeypatch.setattr(route, "_read_saved_frame_prompt_service", _read_saved_prompt)
@@ -194,11 +194,47 @@ def test_frame_batch_generates_and_uses_missing_prompt(monkeypatch) -> None:
 
     assert task_id == "image-task-1"
     assert calls == {
-        "created_tasks": ["prompt-task-1", "image-task-1"],
+        "created_tasks": [("prompt-task-1", "prompt"), ("image-task-1", "image")],
         "waited_task": "prompt-task-1",
         "result_task": "prompt-task-1",
         "image_prompt": "文本模型生成的关键帧提示词",
     }
+
+
+def test_frame_batch_reports_prompt_and_image_stages(monkeypatch) -> None:
+    """批次状态必须暴露提示词与图像阶段，供画面页展示镜头级执行概况。"""
+    item_updates: list[dict[str, object]] = []
+
+    async def _create_item_task(_item, *, on_task_created, **_kwargs):
+        await on_task_created("prompt-task-1", "prompt")
+        await on_task_created("image-task-1", "image")
+        return "image-task-1"
+
+    async def _wait_task(_task_id, **_kwargs):
+        return route.TaskStatus.succeeded
+
+    monkeypatch.setattr(route, "_batch_cancel_requested", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(route, "_frame_batch_update", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        route,
+        "_frame_batch_item_update",
+        lambda _batch_id, _index, **kwargs: item_updates.append(kwargs),
+    )
+    monkeypatch.setattr(route, "_create_frame_batch_item_task", _create_item_task)
+    monkeypatch.setattr(route, "_wait_generation_task", _wait_task)
+    monkeypatch.setattr(route, "_frame_batch_snapshot", lambda _batch_id: {"failed": 0})
+
+    import asyncio
+
+    asyncio.run(route._run_frame_image_batch(
+        "batch-1",
+        [route.FrameImageBatchItem(shot_id="shot-1", name="镜头 01")],
+        model_id=None,
+        target_ratio="9:16",
+        resolution_profile="standard",
+    ))
+
+    assert {update.get("stage") for update in item_updates} >= {"preparing", "prompt", "image", "done"}
 
 
 def _override_db(db: _DummyDB):

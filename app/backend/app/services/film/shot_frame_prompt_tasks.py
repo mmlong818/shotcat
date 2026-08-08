@@ -251,7 +251,9 @@ def _summarize_neighbor_shot(shot: Shot | None) -> tuple[str, str, str]:
         _enum_value(getattr(detail, "movement", None)),
     ]
     camera_text = " / ".join(part for part in camera_parts if part)
-    description = _truncate_for_prompt(getattr(detail, "description", None), limit=60)
+    # 分镜拆解会把空间锚点、人物轴线、构图和前镜承接写入 description；
+    # 相邻镜头摘要需保留足够长度，否则后续关键帧只能看到泛化后的标题，无法延续具体空间关系。
+    description = _truncate_for_prompt(getattr(detail, "description", None), limit=220)
     summary_parts = [
         f"场景：{scene_name}" if scene_name else "",
         f"镜头语言：{camera_text}" if camera_text else "",
@@ -832,7 +834,20 @@ async def build_run_args(
     next_shot = next((item for item in neighbor_rows if item.index == shot.index + 1), None)
     previous_title, previous_excerpt, previous_state = _summarize_neighbor_shot(previous_shot)
     next_title, next_excerpt, next_goal = _summarize_neighbor_shot(next_shot)
-    dialog_summary = "\n".join(line.text for line in (detail.dialog_lines or []) if line.text)
+    # 保留说话者与听者，正反打和反应镜头才能基于真实对话关系稳定视线轴。
+    dialog_summary = "\n".join(
+        "：".join(
+            part
+            for part in [
+                _compact_text(getattr(line, "speaker_name", None)),
+                _compact_text(getattr(line, "text", None)),
+            ]
+            if part
+        )
+        + (f" → {_compact_text(getattr(line, 'target_name', None))}" if _compact_text(getattr(line, "target_name", None)) else "")
+        for line in (detail.dialog_lines or [])
+        if _compact_text(getattr(line, "text", None))
+    )
     project = getattr(getattr(shot, "chapter", None), "project", None)
     visual_style = _enum_value(getattr(project, "visual_style", None))
     style = _enum_value(getattr(project, "style", None))

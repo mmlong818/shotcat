@@ -60,6 +60,10 @@ export type ShotDetailCreate = {
      */
     vfx_note?: string;
     /**
+     * 分镜整体描述（含画面、空间锚点、构图与连续性）
+     */
+    description?: string;
+    /**
      * 动作拍点（按时间顺序排列）
      */
     action_beats?: Array<string>;

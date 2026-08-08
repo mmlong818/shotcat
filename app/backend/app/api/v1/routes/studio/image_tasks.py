@@ -683,7 +683,7 @@ async def _create_frame_batch_item_task(
     model_id: str | None,
     target_ratio: ImageTargetRatio,
     resolution_profile: ImageResolutionProfile | None,
-    on_task_created: Callable[[str], Awaitable[None]] | None = None,
+    on_task_created: Callable[[str, Literal["prompt", "image"]], Awaitable[None]] | None = None,
 ) -> str:
     frame_type_value = item.frame_type.value if hasattr(item.frame_type, "value") else str(item.frame_type)
     async with async_session_maker() as db:
@@ -699,7 +699,7 @@ async def _create_frame_batch_item_task(
             frame_type=item.frame_type,
         )
         if on_task_created:
-            await on_task_created(prompt_task_id)
+            await on_task_created(prompt_task_id, "prompt")
         prompt_status = await _wait_generation_task(prompt_task_id, timeout_s=300.0)
         if prompt_status == TaskStatus.cancelled:
             raise RuntimeError("prompt task cancelled")
@@ -734,7 +734,7 @@ async def _create_frame_batch_item_task(
             resolution_profile=resolution_profile,
         )
     if on_task_created:
-        await on_task_created(image_task_id)
+        await on_task_created(image_task_id, "image")
     return image_task_id
 
 
@@ -755,11 +755,17 @@ async def _run_frame_image_batch(
             break
         label = item.name or item.shot_id
         _frame_batch_update(batch_id, current=label)
-        _frame_batch_item_update(batch_id, index, status="running", error="")
+        _frame_batch_item_update(batch_id, index, status="running", stage="preparing", error="")
         try:
-            async def register_current_task(task_id: str, *, item_index: int = index) -> None:
+            async def register_current_task(
+                task_id: str,
+                stage: Literal["prompt", "image"],
+                *,
+                item_index: int = index,
+            ) -> None:
+                """同步批次当前任务及阶段，让前端能区分提示词和图像生成。"""
                 _frame_batch_update(batch_id, current_task_id=task_id)
-                _frame_batch_item_update(batch_id, item_index, task_id=task_id)
+                _frame_batch_item_update(batch_id, item_index, task_id=task_id, stage=stage)
                 if _batch_cancel_requested(_FRAME_IMAGE_BATCHES, batch_id):
                     await _cancel_generation_task(task_id)
 
@@ -776,16 +782,17 @@ async def _run_frame_image_batch(
                 await _cancel_generation_task(task_id)
             task_status = await _wait_generation_task(task_id)
             if task_status == TaskStatus.succeeded:
-                _frame_batch_item_update(batch_id, index, status="succeeded")
+                _frame_batch_item_update(batch_id, index, status="succeeded", stage="done")
             elif task_status == TaskStatus.cancelled and _batch_cancel_requested(_FRAME_IMAGE_BATCHES, batch_id):
-                _frame_batch_item_update(batch_id, index, status="cancelled", error="队列已停止")
+                _frame_batch_item_update(batch_id, index, status="cancelled", stage="cancelled", error="队列已停止")
             else:
-                _frame_batch_item_update(batch_id, index, status="failed", error=f"任务{task_status.value}")
+                _frame_batch_item_update(batch_id, index, status="failed", stage="failed", error=f"任务{task_status.value}")
         except Exception as exc:  # noqa: BLE001
             _frame_batch_item_update(
                 batch_id,
                 index,
                 status="cancelled" if _batch_cancel_requested(_FRAME_IMAGE_BATCHES, batch_id) else "failed",
+                stage="cancelled" if _batch_cancel_requested(_FRAME_IMAGE_BATCHES, batch_id) else "failed",
                 error="队列已停止" if _batch_cancel_requested(_FRAME_IMAGE_BATCHES, batch_id) else str(exc),
             )
     if _batch_cancel_requested(_FRAME_IMAGE_BATCHES, batch_id):
@@ -931,6 +938,7 @@ async def create_frame_image_batch(
                     "name": item.name,
                     "frame_type": item.frame_type.value if hasattr(item.frame_type, "value") else str(item.frame_type),
                     "status": "queued",
+                    "stage": "queued",
                     "task_id": None,
                     "error": "",
                 }

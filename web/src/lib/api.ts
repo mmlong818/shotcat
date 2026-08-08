@@ -106,10 +106,12 @@ export interface PipelineJobRecord {
   createdAt: number
 }
 export interface PipelineJobStatus {
-  status: 'queued' | 'running' | 'cancelling' | 'cancelled' | 'done' | 'error'
+  status: 'queued' | 'running' | 'awaiting_confirmation' | 'cancelling' | 'cancelled' | 'done' | 'error'
   log: string
   error: string
   cancel_requested?: boolean
+  issues?: string[]
+  repair_round?: number
 }
 
 export const PIPELINE_JOB_EVENT = 'shotcat:pipeline-jobs-changed'
@@ -500,12 +502,15 @@ export const api = {
   cancelPipelineJob: (jobId: string) => api._pipelineJson(`/pipeline/jobs/${jobId}/cancel`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
   }) as Promise<PipelineJobStatus>,
+  confirmPipelineRepair: (jobId: string) => api._pipelineJson(`/pipeline/jobs/${jobId}/confirm-repair`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  }) as Promise<PipelineJobStatus>,
   async runPipeline(step: PipelineStep, pid: string) {
     const existing = findPipelineJob(pid, step)
     if (existing) {
       try {
         const state = await api.pipelineJobStatus(existing.jobId)
-        if (state.status === 'queued' || state.status === 'running' || state.status === 'cancelling') return existing.jobId
+        if (state.status === 'queued' || state.status === 'running' || state.status === 'awaiting_confirmation' || state.status === 'cancelling') return existing.jobId
         forgetPipelineJob(existing.jobId)
       } catch (error) {
         if (error instanceof Error && error.message.includes('job not found')) {
@@ -525,7 +530,7 @@ export const api = {
       return jobId
     })
   },
-  async pollPipeline(jobId: string, tries = 200, isCancelled?: () => boolean): Promise<{ status: string; log: string; error: string }> {
+  async pollPipeline(jobId: string, tries = 200, isCancelled?: () => boolean): Promise<PipelineJobStatus> {
     for (let i = 0; i < tries; i++) {
       if (isCancelled?.()) return { status: 'cancelled', log: '', error: '' }
       const j = await api.pipelineJobStatus(jobId)
@@ -533,6 +538,7 @@ export const api = {
         forgetPipelineJob(jobId)
         return j
       }
+      if (j.status === 'awaiting_confirmation') return j
       if (j.status === 'error') {
         forgetPipelineJob(jobId)
         throw new Error(j.error || '生成失败')

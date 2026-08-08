@@ -208,6 +208,7 @@ def test_create_shot_detail_returns_created_envelope(client: TestClient) -> None
                 "has_bgm": False,
                 "vfx_type": "NONE",
                 "vfx_note": "",
+                "description": "沿走廊纵深看向尽头，周诚位于画面左侧，视线朝右。",
                 "first_frame_prompt": "",
                 "last_frame_prompt": "",
                 "key_frame_prompt": "",
@@ -220,6 +221,8 @@ def test_create_shot_detail_returns_created_envelope(client: TestClient) -> None
     body = response.json()
     assert body["code"] == 201
     assert body["data"]["id"] == "shot-1"
+    assert body["data"]["description"] == "沿走廊纵深看向尽头，周诚位于画面左侧，视线朝右。"
+    assert db.shot_details["shot-1"].description == body["data"]["description"]
 
 
 def test_get_shot_detail_not_found_returns_api_response(client: TestClient) -> None:
