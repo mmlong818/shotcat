@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="shotcat logo" width="520">
+</p>
+
 # shotcat
 
 面向短剧、漫剧和剧情图像制作的本地工作台。`plotcat` 负责剧本创作，`shotcat` 负责把剧本转化为可确认、可追踪、可批量生成的角色、场景、道具、分镜与关键帧。
