@@ -11,6 +11,10 @@
   <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript 5">
 </p>
 
+<p align="center">
+  简体中文 · <a href="README.en.md">English</a>
+</p>
+
 # shotcat
 
 面向短剧、漫剧和剧情图像制作的本地工作台。`plotcat` 负责剧本创作，`shotcat` 负责把剧本转化为可确认、可追踪、可批量生成的角色、场景、道具、分镜与关键帧。
